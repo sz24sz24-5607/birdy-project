@@ -95,7 +95,7 @@ echo -e "${GREEN}Starting backup...${NC}"
 # --delete: Löscht Dateien im Backup die im Source nicht mehr existieren
 # --exclude: Ausschluss von Dateien/Ordnern
 
-rsync -avh \
+rsync -avh --no-specials --no-devices \
     --delete \
     --exclude='venv/' \
     --exclude='venv_old/' \
