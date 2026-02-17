@@ -1,0 +1,54 @@
+# Birdy Bird Feeder - Home Assistant Dashboard
+#
+# Anleitung:
+# 1. In Home Assistant: Einstellungen > Dashboards > Dashboard erstellen
+# 2. Drei-Punkte-Menu > Raw-Konfigurationseditor
+# 3. Diesen Inhalt einfuegen (ab "views:")
+#
+# Voraussetzungen:
+# - MQTT Integration aktiv
+# - Birdy Detection Service laeuft (birdy-detection)
+# - Birdy Celery Worker + Beat laufen
+
+views:
+  - title: Birdy Bird Feeder
+    path: birdy
+    icon: mdi:bird
+    cards:
+      # Kamerabild des letzten Besuchers
+      - type: picture-entity
+        entity: camera.birdy_last_visitor
+        name: Letzter Besucher
+        show_state: false
+        show_name: true
+        camera_view: auto
+
+      # Status-Karten
+      - type: entities
+        title: Status
+        entities:
+          - entity: binary_sensor.birdy_bird_present
+            name: Vogel anwesend
+            icon: mdi:bird
+          - entity: sensor.birdy_last_species
+            name: Letzte Art
+            icon: mdi:bird
+          - entity: sensor.birdy_visits_today
+            name: Besuche heute
+            icon: mdi:counter
+          - entity: sensor.birdy_feed_weight
+            name: Futtergewicht
+            icon: mdi:weight-gram
+
+      # Video-Link (oeffnet Video im Browser)
+      - type: markdown
+        title: Video
+        content: >
+          {% if state_attr('sensor.birdy_last_species', 'video_url') %}
+          [Video ansehen]({{ state_attr('sensor.birdy_last_species', 'video_url') }})
+          - Art: {{ states('sensor.birdy_last_species') }}
+          - Confidence: {{ state_attr('sensor.birdy_last_species', 'confidence') }}
+          - Zeit: {{ state_attr('sensor.birdy_last_species', 'timestamp') | as_timestamp | timestamp_custom('%d.%m.%Y %H:%M') }}
+          {% else %}
+          Noch kein Video vorhanden.
+          {% endif %}

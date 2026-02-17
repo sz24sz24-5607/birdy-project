@@ -3,6 +3,7 @@ Home Assistant MQTT Client Integration
 """
 import json
 import logging
+import os
 from django.conf import settings
 import paho.mqtt.client as mqtt
 
@@ -106,10 +107,11 @@ class HomeAssistantMQTT:
             retain=True
         )
         
-        # Sensor: Letzte Spezies
+        # Sensor: Letzte Spezies (mit JSON-Attributen für URLs)
         species_config = {
             "name": "Birdy Last Species",
             "state_topic": f"{self.topic_prefix}/bird/species",
+            "json_attributes_topic": f"{self.topic_prefix}/bird/attributes",
             "unique_id": "birdy_last_species",
             "icon": "mdi:bird",
             "device": {
@@ -120,6 +122,23 @@ class HomeAssistantMQTT:
         self.client.publish(
             f"homeassistant/sensor/birdy/species/config",
             json.dumps(species_config),
+            retain=True
+        )
+
+        # Camera: Letzter Besucher (Foto via MQTT)
+        camera_config = {
+            "name": "Birdy Last Visitor",
+            "topic": f"{self.topic_prefix}/camera/last_visitor",
+            "unique_id": "birdy_last_visitor",
+            "icon": "mdi:bird",
+            "device": {
+                "identifiers": ["birdy_feeder"],
+                "name": "Birdy Bird Feeder"
+            }
+        }
+        self.client.publish(
+            f"homeassistant/camera/birdy/last_visitor/config",
+            json.dumps(camera_config),
             retain=True
         )
         
@@ -159,34 +178,70 @@ class HomeAssistantMQTT:
     def publish_bird_detected(self, detection):
         """
         Publiziere Vogel-Detektion
-        
+
         Args:
             detection: BirdDetection Model Instance
         """
         if not self.is_connected:
             return
-        
+
+        base_url = settings.BIRDY_SETTINGS['BIRDY_BASE_URL']
+
         # Bird Present
         self.client.publish(f"{self.topic_prefix}/bird/detected", "ON")
-        
-        # Species Name
+
+        # Species Name + Attribute
         if detection.species:
             species_name = detection.species.common_name_de
-            self.client.publish(f"{self.topic_prefix}/bird/species", species_name)
-            
-            # Zusätzliche Attribute als JSON
+            self.client.publish(
+                f"{self.topic_prefix}/bird/species", species_name, retain=True
+            )
+
+            # Attribute mit Photo/Video URLs
             attributes = {
                 "species": species_name,
                 "scientific_name": detection.species.scientific_name,
                 "confidence": f"{detection.confidence:.2%}",
-                "timestamp": detection.timestamp.isoformat()
+                "timestamp": detection.timestamp.isoformat(),
             }
+            if detection.photo and detection.photo.file_url:
+                attributes["photo_url"] = f"{base_url}{detection.photo.file_url}"
+            if detection.video and detection.video.file_url:
+                attributes["video_url"] = f"{base_url}{detection.video.file_url}"
+
             self.client.publish(
                 f"{self.topic_prefix}/bird/attributes",
-                json.dumps(attributes)
+                json.dumps(attributes),
+                retain=True
             )
-        
+
+        # Foto als Binary für MQTT Camera Entity
+        self._publish_last_photo(detection)
+
         logger.info("Bird detection published to MQTT")
+
+    def _publish_last_photo(self, detection):
+        """Publiziere Foto als Binary auf Camera-Topic"""
+        if not detection.photo:
+            return
+
+        photo_path = detection.photo.file_path
+        if not photo_path or not os.path.exists(photo_path):
+            logger.warning(f"Photo file not found: {photo_path}")
+            return
+
+        try:
+            with open(photo_path, 'rb') as f:
+                image_data = f.read()
+
+            self.client.publish(
+                f"{self.topic_prefix}/camera/last_visitor",
+                image_data,
+                retain=True
+            )
+            logger.debug(f"Published photo to MQTT camera ({len(image_data)} bytes)")
+        except Exception as e:
+            logger.error(f"Failed to publish photo to MQTT: {e}")
     
     def publish_bird_left(self):
         """Publiziere dass Vogel weg ist"""

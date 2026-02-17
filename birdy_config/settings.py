@@ -200,4 +200,7 @@ BIRDY_SETTINGS = {
     'MQTT_USERNAME': os.environ.get('MQTT_USERNAME', 'mqtt-user'),
     'MQTT_PASSWORD': os.environ.get('MQTT_PASSWORD', ''),
     'MQTT_TOPIC_PREFIX': 'birdy',
+
+    # Base URL für Media-Links (z.B. in Home Assistant)
+    'BIRDY_BASE_URL': os.environ.get('BIRDY_BASE_URL', 'http://192.168.178.132:8000'),
 }
