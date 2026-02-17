@@ -1,0 +1,28 @@
+[Unit]
+Description=Birdy Gunicorn (Django WSGI)
+After=network.target
+
+[Service]
+Type=notify
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/birdy_project
+Environment="PATH=/home/pi/birdy_project/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="DJANGO_SETTINGS_MODULE=birdy_config.settings_production"
+EnvironmentFile=/home/pi/birdy_project/.env
+ExecStart=/home/pi/birdy_project/venv/bin/gunicorn \
+    --workers 2 \
+    --bind 0.0.0.0:8000 \
+    --timeout 120 \
+    --access-logfile /home/pi/birdy_project/logs/gunicorn_access.log \
+    --error-logfile /home/pi/birdy_project/logs/gunicorn_error.log \
+    birdy_config.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

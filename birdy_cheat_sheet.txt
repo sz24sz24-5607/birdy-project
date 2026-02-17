@@ -1,0 +1,135 @@
+=============================================
+ Birdy Cheat Sheet - Schnellreferenz
+=============================================
+
+## Vorbereitung (immer zuerst)
+
+cd ~/birdy_project
+source venv/bin/activate
+
+---------------------------------------------
+## Development starten/stoppen
+---------------------------------------------
+
+# Alles starten (Redis, Celery, Django, Detection)
+./start_dev.sh
+
+# Alles stoppen
+./stop_dev.sh
+
+# Nur Detection System neu starten
+./restart_birdy.sh
+
+# Manuell in 4 Terminals starten:
+# Terminal 1: Django Server
+python manage.py runserver 0.0.0.0:8000
+
+# Terminal 2: Celery Worker
+celery -A birdy_config worker -Q default -l info
+
+# Terminal 3: Celery Beat
+celery -A birdy_config beat -l info
+
+# Terminal 4: Birdy Detection System
+python manage.py start_birdy
+
+---------------------------------------------
+## Hardware testen
+---------------------------------------------
+
+# PIR Bewegungssensor testen (60s, Ctrl+C zum Beenden)
+python manage.py test_pir
+python manage.py test_pir --duration 120
+
+# Kamera testen (Foto + Video)
+python manage.py test_camera
+
+# Gewichtssensor testen (10 Messungen)
+python manage.py test_weight
+python manage.py test_weight --continuous
+python manage.py test_weight --count 20 --interval 0.5
+
+# Gewichtssensor Rohdaten (ohne Filter/Kalibrierung)
+python manage.py test_weight_raw
+python manage.py test_weight_raw --continuous
+python manage.py test_weight_raw --count 50 --interval 0.2
+
+# Waage kalibrieren (bekanntes Gewicht in Gramm angeben)
+python manage.py calibrate_weight --weight 100
+
+---------------------------------------------
+## Django Administration
+---------------------------------------------
+
+# Admin-Oberfläche: http://raspberrypi.local:8000/admin/
+# Dashboard:        http://raspberrypi.local:8000/
+
+# Datenbank migrieren
+python manage.py migrate
+
+# Admin-Benutzer erstellen
+python manage.py createsuperuser
+
+# Static Files sammeln
+python manage.py collectstatic --noinput
+
+# Django Shell
+python manage.py shell
+
+---------------------------------------------
+## Prozesse killen (Notfall)
+---------------------------------------------
+
+sudo pkill -f celery
+sudo pkill -f "python.*manage.py"
+
+---------------------------------------------
+## Logs
+---------------------------------------------
+
+# Live Birdy Log
+tail -f logs/birdy.log
+
+# Live Django Log
+tail -f logs/django.log
+
+# Live Celery Log
+tail -f logs/celery_worker.log
+
+---------------------------------------------
+## USB Storage
+---------------------------------------------
+
+sudo mount -t vfat -o uid=1000,gid=1000,umask=0022 UUID=0364c46a-01 /mnt/birdy_storage
+
+---------------------------------------------
+## Backup
+---------------------------------------------
+
+# Backup auf NAS (wenn konfiguriert)
+./backup_to_nas.sh
+
+# Restore von NAS
+./restore_from_nas.sh
+
+---------------------------------------------
+## Production (systemd Services)
+---------------------------------------------
+
+# Services installieren
+sudo cp systemd/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Services starten/stoppen/restart
+sudo systemctl start birdy-detection
+sudo systemctl stop birdy-detection
+sudo systemctl restart birdy-*
+
+# Status prüfen
+sudo systemctl status birdy-detection
+sudo systemctl status birdy-celery-worker
+sudo systemctl status birdy-celery-beat
+sudo systemctl status birdy-gunicorn
+
+# Live Logs (Production)
+sudo journalctl -u birdy-detection -f

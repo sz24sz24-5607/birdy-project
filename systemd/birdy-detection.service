@@ -1,0 +1,19 @@
+[Unit]
+Description=Birdy Detection System (PIR + Camera + ML)
+After=network.target redis.service birdy-celery-worker.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/birdy_project
+Environment="PATH=/home/pi/birdy_project/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=/home/pi/birdy_project/.env
+ExecStart=/home/pi/birdy_project/venv/bin/python manage.py start_birdy
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/pi/birdy_project/logs/start_birdy.log
+StandardError=append:/home/pi/birdy_project/logs/start_birdy.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+
+{% block title %}Detections - Birdy{% endblock %}
+
+{% block content %}
+<h1 style="margin-bottom: 2rem;">Alle Detections</h1>
+
+<div class="card" style="margin-bottom: 2rem;">
+    <h3 style="margin: 0 0 1rem 0;">Filter</h3>
+    <form method="get" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
+        <!-- Spezies Filter -->
+        <div>
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Spezies</label>
+            <select name="species" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                <option value="">Alle Arten</option>
+                <option value="none" {% if selected_species == "none" %}selected{% endif %}>Keine Spezies (Background/Niedrige Confidence)</option>
+                {% for sp in species_list %}
+                <option value="{{ sp.id }}" {% if sp.id|stringformat:"s" == selected_species %}selected{% endif %}>
+                    {{ sp.common_name_de }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Confidence Filter -->
+        <div>
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Min. Confidence (%)</label>
+            <input type="number" name="min_confidence" min="0" max="100" step="5"
+                   value="{{ min_confidence }}"
+                   placeholder="z.B. 50"
+                   style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+        </div>
+
+        <!-- Background Filter -->
+        <div>
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Background/Niedrige Confidence</label>
+            <select name="show_background" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px;">
+                <option value="yes" {% if show_background == "yes" %}selected{% endif %}>Anzeigen</option>
+                <option value="no" {% if show_background == "no" %}selected{% endif %}>Ausblenden</option>
+            </select>
+        </div>
+
+        <!-- Buttons -->
+        <div style="display: flex; gap: 0.5rem;">
+            <button type="submit" class="btn" style="flex: 1;">Anwenden</button>
+            <a href="{% url 'detections' %}" class="btn" style="flex: 1; background: #6c757d; text-align: center;">Zurücksetzen</a>
+        </div>
+    </form>
+</div>
+
+<div class="detection-grid">
+    {% for detection in detections %}
+    <div class="detection-item">
+        {% if detection.photo and detection.photo.file %}
+            <a href="{{ detection.photo.file.url }}" target="_blank">
+                <img src="{{ detection.photo.file.url }}" alt="{{ detection.species.common_name_de }}">
+            </a>
+        {% else %}
+            <div style="width: 100%; height: 200px; background: #e0e0e0; display: flex; align-items: center; justify-content: center;">
+                <span style="color: #999;">Kein Foto</span>
+            </div>
+        {% endif %}
+        <div class="content">
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: start;">
+                <!-- Left Column: Text -->
+                <div>
+                    {% if detection.species %}
+                        <h3 style="margin: 0 0 0.75rem 0;">{{ detection.species.common_name_de }}</h3>
+                        <p style="margin: 0 0 0.25rem 0; color: #666; font-size: 0.9rem;"><strong>Zeit:</strong> {{ detection.timestamp|date:"d.m.Y H:i:s" }}</p>
+                        <p style="margin: 0; color: #666; font-size: 0.9rem;"><strong>Wissenschaftlich:</strong> {{ detection.species.scientific_name }}</p>
+                    {% else %}
+                        <h3 style="margin: 0 0 0.75rem 0; color: #999;">Keine Spezies</h3>
+                        <p style="margin: 0 0 0.25rem 0; color: #666; font-size: 0.9rem;"><strong>Zeit:</strong> {{ detection.timestamp|date:"d.m.Y H:i:s" }}</p>
+                        <p style="margin: 0; color: #999; font-size: 0.9rem; font-style: italic;">Background oder niedrige Confidence</p>
+                    {% endif %}
+                </div>
+                <!-- Right Column: Confidence + Video Button -->
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
+                    <span class="badge {% if detection.confidence >= 0.7 %}badge-success{% elif detection.confidence >= 0.5 %}badge-warning{% else %}badge-danger{% endif %}"
+                          style="{% if not detection.species %}background: #6c757d;{% endif %}">
+                        {% widthratio detection.confidence 1 100 %}% Confidence
+                    </span>
+                    {% if detection.video %}
+                    <a href="{{ detection.video.file.url }}" target="_blank" class="btn" style="font-size: 0.85rem; padding: 0.4rem 1rem; white-space: nowrap;">
+                        Video ansehen
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <p style="grid-column: 1 / -1; text-align: center; color: #999; padding: 2rem;">Keine Detections gefunden</p>
+    {% endfor %}
+</div>
+
+{% if detections.has_other_pages %}
+<div style="display: flex; justify-content: center; gap: 1rem; margin-top: 2rem;">
+    {% if detections.has_previous %}
+        <a href="?page={{ detections.previous_page_number }}{% if selected_species %}&species={{ selected_species }}{% endif %}{% if min_confidence %}&min_confidence={{ min_confidence }}{% endif %}{% if show_background %}&show_background={{ show_background }}{% endif %}" class="btn">← Zurück</a>
+    {% endif %}
+
+    <span style="padding: 0.5rem 1rem; background: white; border-radius: 4px;">
+        Seite {{ detections.number }} von {{ detections.paginator.num_pages }}
+    </span>
+
+    {% if detections.has_next %}
+        <a href="?page={{ detections.next_page_number }}{% if selected_species %}&species={{ selected_species }}{% endif %}{% if min_confidence %}&min_confidence={{ min_confidence }}{% endif %}{% if show_background %}&show_background={{ show_background }}{% endif %}" class="btn">Weiter →</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

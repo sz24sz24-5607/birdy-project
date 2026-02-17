@@ -1,0 +1,19 @@
+[Unit]
+Description=Birdy Celery Beat (Periodic Tasks)
+After=network.target redis.service
+
+[Service]
+Type=forking
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/birdy_project
+Environment="PATH=/home/pi/birdy_project/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=/home/pi/birdy_project/.env
+ExecStart=/home/pi/birdy_project/venv/bin/celery -A birdy_config beat -l info --logfile=/home/pi/birdy_project/logs/celery_beat.log --detach --pidfile=/tmp/celery_beat.pid
+ExecStop=/bin/kill -TERM $MAINPID
+PIDFile=/tmp/celery_beat.pid
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

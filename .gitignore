@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+venv_old/
+env/
+
+# Django
+*.log
+db.sqlite3
+*.sqlite3
+staticfiles/
+media/
+
+# Celery
+celerybeat-schedule
+celerybeat-schedule-shm
+celerybeat-schedule-wal
+celerybeat.pid
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+logs/
+*.pid
+
+# Large build directories (können gelöscht werden)
+tensorflow_src/
+tflite_build/
+
+# Backup files
+*.bak
+*.backup
+
+# Temporary files
+*.tmp
+*.pyc.save
+test_script/
+
+# Media files (zu groß für Git)
+media/photos/
+media/videos/
+usb_storage/photos/
+usb_storage/videos/
+
+# Secrets
+.env
+secrets.py
+
+# Claude Code
+.claude/
+
+# Calibration data (geräte-spezifisch)
+weight_calibration.json
