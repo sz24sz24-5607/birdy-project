@@ -92,6 +92,18 @@ class BirdDetectionService:
                 logger.error("Video recording failed")
                 return
 
+            # latest.mp4 Symlink aktualisieren (für HA Media Browser)
+            # Relativer Pfad damit Symlink auch über NFS auflösbar ist
+            latest_link = self.storage_path / 'videos' / 'latest.mp4'
+            try:
+                if latest_link.is_symlink() or latest_link.exists():
+                    latest_link.unlink()
+                rel_path = recorded_video.relative_to(self.storage_path / 'videos')
+                latest_link.symlink_to(rel_path)
+                logger.debug(f"Updated latest.mp4 → {rel_path}")
+            except Exception as e:
+                logger.warning(f"Could not update latest.mp4 symlink: {e}")
+
             # Video DB Entry - file wird relativ zu MEDIA_ROOT gespeichert
             # Pfad relativ zu MEDIA_ROOT (z.B. "videos/2026/01/18/20260118_150303.mp4")
             # Nutze tatsächlichen Dateinamen (könnte .mp4 oder .h264 sein, falls ffmpeg fehlschlägt)
