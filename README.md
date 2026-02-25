@@ -164,6 +164,31 @@ Birdy publishes to MQTT with Home Assistant auto-discovery:
 6. MQTT notification sent to Home Assistant
 7. Web dashboard updates automatically
 
+## Mechanical Construction
+
+The birdhouse enclosure is a hybrid construction with 3D-printed and CNC-milled parts. All source files and manufacturing data are in the `mechanic/` folder.
+
+### 3D-Printed Parts (FDM)
+
+| File | Description |
+|---|---|
+| `box_top.stl` / `box_bottom.stl` | Electronics enclosure (Raspberry Pi, camera) |
+| `feeder_plate.stl` | Seed tray |
+| `frame_left.stl` / `frame_right.stl` | Side frames |
+| `bar_left.stl` / `bar_right.stl` | Mounting bars |
+| `pole_mount.stl` / `pole_mount_2.stl` | Pole/post mounting bracket |
+| `weight_main.stl` / `weight_left.stl` / `weight_right.stl` | Weight sensor housing |
+| `konstruktion.skp` | SketchUp source file (full assembly) |
+
+### CNC-Milled Parts (Wood) – `mechanic/mill/`
+
+| File | Description |
+|---|---|
+| `back.stl` / `base.stl` / `left.stl` / `right.stl` | Wooden wall panels |
+| `roof.stl` / `window.stl` | Roof and window panel |
+| `*.E12` | Estlcam CNC project files |
+| `m_*.gcode` | G-code toolpaths for CNC mill |
+
 ## Project Structure
 
 ```
@@ -179,7 +204,9 @@ birdy_project/
 ├── ml_models/           # TFLite model & label files
 ├── templates/           # Django HTML templates
 ├── static/              # CSS, icons, PWA manifest
-└── systemd/             # Service files for production
+├── systemd/             # Service files for production
+└── mechanic/            # Birdhouse construction files (STL, SketchUp, G-code)
+    └── mill/            # CNC milling files (Estlcam, G-code)
 ```
 
 ## License
