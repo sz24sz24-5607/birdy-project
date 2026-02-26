@@ -158,11 +158,13 @@ Birdy publishes to MQTT with Home Assistant auto-discovery:
 
 1. PIR sensor triggers on motion
 2. Camera records 4s video (H.264, 720p)
-3. Middle frame extracted via ffmpeg
-4. TensorFlow Lite classifies species (~50-100ms)
-5. Results stored in PostgreSQL with photo + video
-6. MQTT notification sent to Home Assistant
-7. Web dashboard updates automatically
+3. 8 frames extracted evenly across the video via ffmpeg (every ~0.5s)
+4. TensorFlow Lite classifies each frame (~50-100ms per frame)
+5. Frame with highest non-background confidence is selected as the best frame
+6. If no valid bird detected (confidence < 50% or all frames = background): video deleted, no DB entry
+7. Results stored in PostgreSQL with best photo + video
+8. MQTT notification sent to Home Assistant
+9. Web dashboard updates automatically
 
 ## Mechanical Construction
 

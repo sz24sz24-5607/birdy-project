@@ -29,19 +29,26 @@ BIRDY_SETTINGS = {
 
 ### 1. Detection Workflow (`services/bird_detection.py`)
 
+Statt einem einzelnen Frame werden **8 Frames gleichmässig** aus dem 4s-Video extrahiert
+und jeder klassifiziert. Der Frame mit der höchsten Konfidenz (kein Background) gewinnt:
+
 ```python
-if confidence >= min_confidence and not is_background:
+# Alle 8 Frames klassifizieren
+for frame_path in candidate_frames:
+    result = classifier.classify(frame_path, top_k=5)
+    if not is_background and confidence > best_confidence:
+        best_confidence = confidence
+        best_frame = frame_path
+
+# Bestes Frame bewerten
+if best_frame is not None and best_confidence >= min_confidence:
     is_valid_visit = True
-    # Spezies wird erstellt und gespeichert
     species = BirdSpecies.objects.get_or_create(...)
-else:
-    # Kein gültiger Besuch
-    species = None
 ```
 
 **Ergebnis:**
-- `BirdDetection.species = None` → kein gültiger Besuch
-- `BirdDetection.species = <Spezies>` → gültiger Besuch
+- Kein gültiger Frame → Video und Temp-Frames werden gelöscht, **kein DB-Eintrag**
+- Gültiger Frame → bestes Frame wird als Photo gespeichert, DB-Einträge werden erstellt
 
 ### 2. Statistiken (`species/models.py`)
 
@@ -51,7 +58,7 @@ if species:
     DailyStatistics.update_for_date(timestamp.date(), species)
 ```
 
-**Ergebnis:** Nur Besuche mit gültiger Spezies landen in den Statistiken
+**Ergebnis:** Nur Besuche mit gültiger Spezies landen in den Statistiken. Ungültige Detections werden gar nicht erst in die DB geschrieben.
 
 ### 3. Visit Counts (MQTT, Dashboard)
 
@@ -64,49 +71,51 @@ total_visits = BirdDetection.objects.filter(
 ).count()
 ```
 
-**Ergebnis:** Visit Counter zeigt nur gültige Besuche an
+**Ergebnis:** Visit Counter zeigt nur gültige Besuche an. Da ungültige Detections nie in der DB landen, wird hier nur über tatsächliche BirdDetection-Einträge gezählt.
 
 ## Beispiele
 
 ### Beispiel 1: Hohe Confidence, echte Spezies
-- **Klassifizierung:** "Parus major" mit 85% Confidence
+- **Bestes Frame:** "Parus major" mit 85% Confidence (Frame 3 von 8)
 - **Gültiger Besuch?** ✅ JA
-- **Grund:** 85% >= 50% UND nicht "background"
-- **Ergebnis:** Spezies gespeichert, Statistik aktualisiert
+- **Log:** `Best frame: frame_03.jpg → Parus major (85.0%) [512ms total]`
+- **Ergebnis:** Bestes Frame gespeichert, Spezies in DB, Statistik aktualisiert
 
-### Beispiel 2: Niedrige Confidence
-- **Klassifizierung:** "Parus major" mit 35% Confidence
+### Beispiel 2: Niedrige Confidence über alle Frames
+- **Bestes Frame:** "Parus major" mit 35% Confidence
 - **Gültiger Besuch?** ❌ NEIN
-- **Grund:** 35% < 50%
-- **Ergebnis:** `species = None`, keine Statistik
-- **Log:** `Not a valid visit: confidence too low (35.0% < 50.0%)`
+- **Grund:** 35% < 50% (kein Frame erreicht Schwellwert)
+- **Log:** `Not a valid visit: best confidence too low (35.0% < 50.0%)`
+- **Ergebnis:** Video gelöscht, kein DB-Eintrag
 
-### Beispiel 3: Background erkannt
-- **Klassifizierung:** "background" mit 92% Confidence
+### Beispiel 3: Alle Frames = Background
+- **Bestes Frame:** alle Frames als "background" klassifiziert
 - **Gültiger Besuch?** ❌ NEIN
-- **Grund:** "background" ist keine echte Spezies
-- **Ergebnis:** `species = None`, keine Statistik
-- **Log:** `Not a valid visit: background detected`
+- **Grund:** "background" wird immer übersprungen
+- **Log:** `Not a valid visit: no valid (non-background) frame found`
+- **Ergebnis:** Video gelöscht, kein DB-Eintrag
 
 ### Beispiel 4: Grenzfall
-- **Klassifizierung:** "Parus major" mit 50% Confidence
+- **Bestes Frame:** "Parus major" mit 50% Confidence
 - **Gültiger Besuch?** ✅ JA
 - **Grund:** 50% >= 50% UND nicht "background"
-- **Ergebnis:** Spezies gespeichert, Statistik aktualisiert
+- **Ergebnis:** Bestes Frame gespeichert, Statistik aktualisiert
 
 ## Auswirkungen auf Daten
 
 ### Was wird gespeichert?
 
-**Immer gespeichert (in `BirdDetection`):**
-- Alle Motion Events mit Video und Foto
-- Klassifizierungs-Ergebnisse (confidence, top_k_predictions)
-- Timestamp, PIR Event, etc.
-
-**Nur bei gültigen Besuchen:**
-- `BirdDetection.species` ist gesetzt (nicht None)
+**Nur bei gültigen Besuchen** (confidence >= 50%, kein background):
+- Video (MP4) auf USB-Storage
+- Bestes Frame (JPG) auf USB-Storage
+- `Video`-, `Photo`-, `BirdDetection`-DB-Einträge
+- `BirdDetection.species` gesetzt
 - Eintrag in `DailyStatistics`
 - Zählt in Visit Counters (Dashboard, MQTT)
+
+**Bei ungültigen Detections** (background, zu niedrige Konfidenz):
+- Video und Temp-Frames werden sofort gelöscht
+- **Kein DB-Eintrag** wird erstellt
 
 ### Datenbank Queries für Analyse
 
@@ -185,9 +194,11 @@ Um den Schwellwert zu ändern, editiere `birdy_config/settings.py`:
 
 ## Zusammenfassung
 
-**Gültige Besuche = Confidence >= 50% UND Spezies != "background"**
+**Gültige Besuche = bestes Frame aus 8 Kandidaten hat Confidence >= 50% UND ist kein "background"**
 
-Alle anderen Detections werden zwar gespeichert (für Debugging), aber:
-- ❌ Nicht in Statistiken
-- ❌ Nicht in Visit Counters
-- ❌ Nicht in Top Species Listen
+Ungültige Detections werden **nicht** in die DB gespeichert:
+- ❌ Kein DB-Eintrag
+- ❌ Kein Video gespeichert
+- ❌ Kein Foto gespeichert
+- ❌ Keine Statistik
+- ❌ Keine MQTT-Benachrichtigung

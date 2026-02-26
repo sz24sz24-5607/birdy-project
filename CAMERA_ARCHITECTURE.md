@@ -38,7 +38,7 @@ def handle_motion_detected(self, pir_event):
 - ✓ Passt zur Hardware-Einschränkung (nur 1 Kamera)
 
 ### Nachteile
-- PIR Detection Loop blockiert während Verarbeitung (ca. 10-15 Sekunden)
+- PIR Detection Loop blockiert während Verarbeitung (ca. 15-20 Sekunden: 4s Video + ffmpeg Multi-Frame + 8× TFLite)
 - Kein anderer Motion Event während dieser Zeit
 
 **Ist das ein Problem?**
