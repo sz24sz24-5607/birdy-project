@@ -2,6 +2,7 @@
 Bird Detection Service - Orchestriert gesamten Detection-Workflow
 """
 import logging
+import shutil
 import threading
 from pathlib import Path
 from datetime import datetime
@@ -92,71 +93,17 @@ class BirdDetectionService:
                 logger.error("Video recording failed")
                 return
 
-            # latest.mp4 Symlink aktualisieren (für HA Media Browser)
-            # Relativer Pfad damit Symlink auch über NFS auflösbar ist
-            latest_link = self.storage_path / 'videos' / 'latest.mp4'
-            try:
-                if latest_link.is_symlink() or latest_link.exists():
-                    latest_link.unlink()
-                rel_path = recorded_video.relative_to(self.storage_path / 'videos')
-                latest_link.symlink_to(rel_path)
-                logger.debug(f"Updated latest.mp4 → {rel_path}")
-            except Exception as e:
-                logger.warning(f"Could not update latest.mp4 symlink: {e}")
-
-            # Video DB Entry - file wird relativ zu MEDIA_ROOT gespeichert
-            # Pfad relativ zu MEDIA_ROOT (z.B. "videos/2026/01/18/20260118_150303.mp4")
-            # Nutze tatsächlichen Dateinamen (könnte .mp4 oder .h264 sein, falls ffmpeg fehlschlägt)
-            actual_filename = recorded_video.name
-            relative_video_path = str(Path('videos') / date_path / actual_filename)
-
-            video_obj = Video.objects.create(
-                timestamp=timestamp,
-                file=relative_video_path,  # Django FileField verwendet Pfad relativ zu MEDIA_ROOT
-                filename=actual_filename,
-                filesize_bytes=recorded_video.stat().st_size if recorded_video.exists() else 0,
-                duration_seconds=settings.BIRDY_SETTINGS['RECORDING_DURATION_SECONDS'],  # Echte Video-Dauer (kein Pre-Trigger aktuell)
-                width=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][0],
-                height=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][1],
-                framerate=settings.BIRDY_SETTINGS['CAMERA_FRAMERATE'],
-                codec='h264'
-            )
-            
-            # Frame extrahieren
+            # Frame extrahieren (vor Klassifizierung, kein DB-Eintrag noch)
             photo_filename = f"{filename_base}.jpg"
             photo_path = self.storage_path / 'photos' / date_path / photo_filename
-            
+
             logger.info(f"Extracting frame: {photo_path}")
             frame_path = camera.extract_best_frame(recorded_video, photo_path)
-            
+
             if not frame_path:
                 logger.error("Frame extraction failed")
                 return
-            
-            # Photo DB Entry
-            from PIL import Image
-            try:
-                with Image.open(frame_path) as img:
-                    width, height = img.size
-            except:
-                width, height = 0, 0
 
-            # Pfad relativ zu MEDIA_ROOT
-            relative_photo_path = str(Path('photos') / date_path / photo_filename)
-
-            photo_obj = Photo.objects.create(
-                timestamp=timestamp,
-                file=relative_photo_path,  # Django ImageField verwendet Pfad relativ zu MEDIA_ROOT
-                filename=photo_filename,
-                filesize_bytes=frame_path.stat().st_size if frame_path.exists() else 0,
-                width=width,
-                height=height
-            )
-
-            # Video-Thumbnail aktualisieren (gleiches Frame wie Photo)
-            video_obj.thumbnail_frame = relative_photo_path
-            video_obj.save()
-            
             # Klassifizierung
             logger.info("Classifying bird species...")
             classification = None
@@ -197,32 +144,96 @@ class BirdDetectionService:
                         reason = "background detected" if is_background else f"confidence too low ({confidence:.1%} < {min_confidence:.1%})"
                         logger.info(f"Not a valid visit: {reason}")
 
+            # Kein gültiger Besuch → Dateien löschen, kein DB-Eintrag
+            if not is_valid_visit:
+                try:
+                    recorded_video.unlink(missing_ok=True)
+                    logger.debug(f"Deleted video (no valid detection): {recorded_video}")
+                except Exception as e:
+                    logger.warning(f"Could not delete video: {e}")
+                try:
+                    frame_path.unlink(missing_ok=True)
+                    logger.debug(f"Deleted frame (no valid detection): {frame_path}")
+                except Exception as e:
+                    logger.warning(f"Could not delete frame: {e}")
+                logger.info("No valid detection – files deleted, no DB entries created")
+                return
+
+            # Ab hier: gültiger Besuch → DB-Einträge erstellen
+
+            # latest.mp4 aktualisieren (für HA Media Browser via NFS)
+            # Kopie statt Symlink, da vfat keine Symlinks unterstützt
+            latest_path = self.storage_path / 'videos' / 'latest.mp4'
+            try:
+                shutil.copy2(recorded_video, latest_path)
+                logger.debug(f"Updated latest.mp4 → {recorded_video.name}")
+            except Exception as e:
+                logger.warning(f"Could not update latest.mp4: {e}")
+
+            # Video DB Entry
+            # Nutze tatsächlichen Dateinamen (könnte .mp4 oder .h264 sein, falls ffmpeg fehlschlägt)
+            actual_filename = recorded_video.name
+            relative_video_path = str(Path('videos') / date_path / actual_filename)
+
+            video_obj = Video.objects.create(
+                timestamp=timestamp,
+                file=relative_video_path,
+                filename=actual_filename,
+                filesize_bytes=recorded_video.stat().st_size if recorded_video.exists() else 0,
+                duration_seconds=settings.BIRDY_SETTINGS['RECORDING_DURATION_SECONDS'],
+                width=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][0],
+                height=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][1],
+                framerate=settings.BIRDY_SETTINGS['CAMERA_FRAMERATE'],
+                codec='h264'
+            )
+
+            # Photo DB Entry
+            from PIL import Image
+            try:
+                with Image.open(frame_path) as img:
+                    width, height = img.size
+            except:
+                width, height = 0, 0
+
+            relative_photo_path = str(Path('photos') / date_path / photo_filename)
+
+            photo_obj = Photo.objects.create(
+                timestamp=timestamp,
+                file=relative_photo_path,
+                filename=photo_filename,
+                filesize_bytes=frame_path.stat().st_size if frame_path.exists() else 0,
+                width=width,
+                height=height
+            )
+
+            # Video-Thumbnail setzen
+            video_obj.thumbnail_frame = relative_photo_path
+            video_obj.save()
+
             # BirdDetection Entry
-            # species bleibt None wenn kein gültiger Besuch
             detection = BirdDetection.objects.create(
                 timestamp=timestamp,
-                species=species if is_valid_visit else None,
-                confidence=classification['top_prediction']['confidence'] if classification else 0,
-                top_predictions=classification['top_k_predictions'] if classification else [],
+                species=species,
+                confidence=classification['top_prediction']['confidence'],
+                top_predictions=classification['top_k_predictions'],
                 photo=photo_obj,
                 video=video_obj,
                 pir_event=pir_event,
                 processed=True,
-                processing_time_ms=classification['processing_time_ms'] if classification else 0
+                processing_time_ms=classification['processing_time_ms']
             )
-            
-            logger.info(f"Detection saved: {species.common_name_de if species else 'Unknown'}")
-            
+
+            logger.info(f"Detection saved: {species.common_name_de}")
+
             # Statistiken aktualisieren
-            if species:
-                DailyStatistics.update_for_date(timestamp.date(), species)
-                logger.info("Statistics updated")
-            
+            DailyStatistics.update_for_date(timestamp.date(), species)
+            logger.info("Statistics updated")
+
             # Home Assistant benachrichtigen
             try:
                 from homeassistant.mqtt_client import get_mqtt_client
                 mqtt = get_mqtt_client()
-                
+
                 if mqtt.is_connected:
                     mqtt.publish_bird_detected(detection)
                     logger.info("Home Assistant notified")
