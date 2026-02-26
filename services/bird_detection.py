@@ -93,71 +93,91 @@ class BirdDetectionService:
                 logger.error("Video recording failed")
                 return
 
-            # Frame extrahieren (vor Klassifizierung, kein DB-Eintrag noch)
-            photo_filename = f"{filename_base}.jpg"
-            photo_path = self.storage_path / 'photos' / date_path / photo_filename
+            # Extrahiere Kandidaten-Frames für Best-Frame-Selektion
+            logger.info("Extracting candidate frames...")
+            candidate_frames = camera.extract_candidate_frames(recorded_video, n_frames=8)
 
-            logger.info(f"Extracting frame: {photo_path}")
-            frame_path = camera.extract_best_frame(recorded_video, photo_path)
-
-            if not frame_path:
-                logger.error("Frame extraction failed")
+            if not candidate_frames:
+                logger.error("Candidate frame extraction failed")
+                recorded_video.unlink(missing_ok=True)
                 return
 
-            # Klassifizierung
-            logger.info("Classifying bird species...")
+            temp_dir = candidate_frames[0].parent
+
+            # Klassifiziere alle Frames, wähle den mit höchster Konfidenz
+            logger.info(f"Classifying {len(candidate_frames)} candidate frames...")
             classification = None
             species = None
             is_valid_visit = False
+            best_frame = None
+            best_confidence = -1.0
+            total_processing_ms = 0
+            min_confidence = settings.BIRDY_SETTINGS['MIN_CONFIDENCE_SPECIES']
 
             if classifier.is_initialized:
-                classification = classifier.classify(frame_path, top_k=5)
+                for i, frame_path in enumerate(candidate_frames):
+                    result = classifier.classify(frame_path, top_k=5)
+                    if not result:
+                        continue
 
-                if classification:
-                    top_pred = classification['top_prediction']
-                    species_label = top_pred['label']
+                    total_processing_ms += result['processing_time_ms']
+                    top_pred = result['top_prediction']
                     confidence = top_pred['confidence']
+                    is_background = top_pred['label'].lower() == 'background'
 
-                    # Prüfe ob gültiger Besuch:
-                    # 1. Confidence >= MIN_CONFIDENCE_SPECIES (50%)
-                    # 2. NICHT "background" (letzte Spezies in labels.txt)
-                    min_confidence = settings.BIRDY_SETTINGS['MIN_CONFIDENCE_SPECIES']
-                    is_background = species_label.lower() == 'background'
+                    logger.debug(
+                        f"Frame {i+1}/{len(candidate_frames)}: "
+                        f"{top_pred['label']} ({confidence:.1%})"
+                        + (" [background]" if is_background else "")
+                    )
 
-                    if confidence >= min_confidence and not is_background:
-                        is_valid_visit = True
+                    if not is_background and confidence > best_confidence:
+                        best_confidence = confidence
+                        best_frame = frame_path
+                        classification = result
 
-                        # BirdSpecies erstellen/holen
-                        species, created = BirdSpecies.objects.get_or_create(
-                            scientific_name=species_label,
-                            defaults={
-                                'common_name_de': species_label,
-                                'inat_taxon_id': top_pred['class_id']
-                            }
-                        )
+                if best_frame is not None and best_confidence >= min_confidence:
+                    is_valid_visit = True
+                    classification['processing_time_ms'] = total_processing_ms
+                    species_label = classification['top_prediction']['label']
 
-                        if created:
-                            logger.info(f"New species discovered: {species_label}")
+                    species, created = BirdSpecies.objects.get_or_create(
+                        scientific_name=species_label,
+                        defaults={
+                            'common_name_de': species_label,
+                            'inat_taxon_id': classification['top_prediction']['class_id']
+                        }
+                    )
+                    if created:
+                        logger.info(f"New species discovered: {species_label}")
 
-                        logger.info(f"Valid visit: {species_label} ({confidence:.1%})")
-                    else:
-                        reason = "background detected" if is_background else f"confidence too low ({confidence:.1%} < {min_confidence:.1%})"
-                        logger.info(f"Not a valid visit: {reason}")
+                    logger.info(
+                        f"Best frame: {best_frame.name} → "
+                        f"{species_label} ({best_confidence:.1%}) "
+                        f"[{total_processing_ms}ms total]"
+                    )
+                else:
+                    reason = (
+                        f"best confidence too low ({best_confidence:.1%} < {min_confidence:.1%})"
+                        if best_frame else "no valid (non-background) frame found"
+                    )
+                    logger.info(f"Not a valid visit: {reason}")
 
-            # Kein gültiger Besuch → Dateien löschen, kein DB-Eintrag
+            # Kein gültiger Besuch → Temp-Frames + Video löschen, kein DB-Eintrag
             if not is_valid_visit:
-                try:
-                    recorded_video.unlink(missing_ok=True)
-                    logger.debug(f"Deleted video (no valid detection): {recorded_video}")
-                except Exception as e:
-                    logger.warning(f"Could not delete video: {e}")
-                try:
-                    frame_path.unlink(missing_ok=True)
-                    logger.debug(f"Deleted frame (no valid detection): {frame_path}")
-                except Exception as e:
-                    logger.warning(f"Could not delete frame: {e}")
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                recorded_video.unlink(missing_ok=True)
                 logger.info("No valid detection – files deleted, no DB entries created")
                 return
+
+            # Bestes Frame an finalen Pfad kopieren
+            photo_filename = f"{filename_base}.jpg"
+            photo_path = self.storage_path / 'photos' / date_path / photo_filename
+            photo_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(best_frame, photo_path)
+
+            # Temp-Frames aufräumen
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
             # Ab hier: gültiger Besuch → DB-Einträge erstellen
 
@@ -190,7 +210,7 @@ class BirdDetectionService:
             # Photo DB Entry
             from PIL import Image
             try:
-                with Image.open(frame_path) as img:
+                with Image.open(photo_path) as img:
                     width, height = img.size
             except:
                 width, height = 0, 0
@@ -201,7 +221,7 @@ class BirdDetectionService:
                 timestamp=timestamp,
                 file=relative_photo_path,
                 filename=photo_filename,
-                filesize_bytes=frame_path.stat().st_size if frame_path.exists() else 0,
+                filesize_bytes=photo_path.stat().st_size if photo_path.exists() else 0,
                 width=width,
                 height=height
             )

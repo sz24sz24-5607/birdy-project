@@ -311,6 +311,47 @@ class CameraWorkerProcess:
             logger.error(f"Extract frame failed: {e}")
             return None
 
+    def extract_candidate_frames(self, video_path, n_frames=8):
+        """
+        Extrahiere N gleichmässig verteilte Frames für Best-Frame-Selektion.
+        ffmpeg läuft als Subprocess im Hauptprozess – kein Worker-Queue nötig.
+
+        Args:
+            video_path: Pfad zum MP4-Video
+            n_frames: Anzahl Frames (default: 8 → alle 0.5s bei 4s-Video)
+
+        Returns:
+            list[Path]: Temp-Frame-Pfade (müssen vom Aufrufer gelöscht werden),
+                        oder [] bei Fehler
+        """
+        import tempfile
+        try:
+            video_path = Path(video_path)
+            temp_dir = Path(tempfile.mkdtemp(prefix='birdy_frames_'))
+
+            fps = n_frames / self.recording_duration  # z.B. 8/4 = 2.0 fps
+
+            result = subprocess.run([
+                'ffmpeg', '-y',
+                '-i', str(video_path),
+                '-vf', f'fps={fps}',
+                '-q:v', '2',
+                str(temp_dir / 'frame_%02d.jpg')
+            ], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                frames = sorted(temp_dir.glob('frame_*.jpg'))
+                logger.info(f"[Worker] Extracted {len(frames)} candidate frames from {video_path.name}")
+                return frames
+            else:
+                logger.error(f"[Worker] ffmpeg multi-frame extraction failed: {result.stderr}")
+                temp_dir.rmdir()
+                return []
+
+        except Exception as e:
+            logger.error(f"[Worker] Failed to extract candidate frames: {e}")
+            return []
+
     def get_stream_frame(self):
         """
         Live-Stream Frame - Nicht unterstützt im Worker-Modus
