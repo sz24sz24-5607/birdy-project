@@ -234,14 +234,9 @@ class CameraWorkerProcess:
             if result.returncode == 0 and mp4_path.exists():
                 logger.info(f"[Worker] Video recorded successfully: {mp4_path}")
 
-                # Extrahiere Frame
-                photo_path = output_path.with_suffix('.jpg')
-                self._extract_frame(mp4_path, photo_path)
-
                 self.result_queue.put({
                     'success': True,
                     'video_path': str(mp4_path),
-                    'photo_path': str(photo_path) if photo_path.exists() else None
                 })
             else:
                 logger.error(f"[Worker] rpicam-vid failed: {result.stderr}")
