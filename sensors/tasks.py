@@ -2,6 +2,7 @@
 Celery Tasks für Sensoren
 """
 import logging
+
 from celery import shared_task
 from django.utils import timezone
 
@@ -19,7 +20,7 @@ def measure_weight_task():
     falls start_birdy nicht läuft.
     """
     try:
-        from sensors.models import WeightMeasurement, SensorStatus
+        from sensors.models import SensorStatus, WeightMeasurement
 
         # Lese letzte Gewichtsmessung aus DB (von start_birdy geschrieben)
         latest_measurement = WeightMeasurement.objects.order_by('-timestamp').first()

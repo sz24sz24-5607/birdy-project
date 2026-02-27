@@ -2,19 +2,20 @@
 Birdy Web Views - Frontend Website
 """
 import json
-from django.shortcuts import render
+
 from django.core.paginator import Paginator
+from django.db.models import Count, Sum
+from django.shortcuts import render
 from django.utils import timezone
-from datetime import datetime
-from django.db.models import Sum, Count
-from species.models import BirdDetection, BirdSpecies, DailyStatistics, MonthlyStatistics, YearlyStatistics
-from media_manager.models import Photo
+
+from species.models import BirdDetection, BirdSpecies, MonthlyStatistics
 
 
 def home(request):
     """Dashboard Homepage"""
-    from sensors.models import SensorStatus
     from django.db.models import Count
+
+    from sensors.models import SensorStatus
 
     today = timezone.now().date()
 
@@ -118,7 +119,6 @@ def statistics(request):
     ]
 
     current_year = timezone.now().year
-    current_month = timezone.now().month
 
     # Verfügbare Jahre (aus DB)
     available_years = list(

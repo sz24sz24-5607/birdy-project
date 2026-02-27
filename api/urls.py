@@ -1,8 +1,14 @@
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
+
 from .views import (
-    BirdSpeciesViewSet, BirdDetectionViewSet, PhotoViewSet, VideoViewSet,
-    WeightViewSet, SensorStatusViewSet, StatisticsViewSet
+    BirdDetectionViewSet,
+    BirdSpeciesViewSet,
+    PhotoViewSet,
+    SensorStatusViewSet,
+    StatisticsViewSet,
+    VideoViewSet,
+    WeightViewSet,
 )
 
 router = DefaultRouter()

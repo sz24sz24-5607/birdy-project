@@ -4,8 +4,6 @@ Script to translate scientific bird names to German common names.
 This script uses web searches and database lookups to find German names.
 """
 
-import time
-import re
 
 # Comprehensive dictionary of scientific names to German common names
 # This will be built up based on research
@@ -48,9 +46,7 @@ bird_translations = {
     "Gallus gallus domesticus": "Haushuhn",
     "Numida meleagris": "Helmperlhuhn",
     "Junco hyemalis caniceps": "Graukopf-Junko",
-    "Tyrannus vociferans": "Couchstyra
-
-nn",
+    "Tyrannus vociferans": "Couchstyrann",
     "Tyrannus tyrannus": "Königstyrann",
     "Tyrannus forficatus": "Scherenschwanztyrann",
     "Tyrannus crassirostris": "Dickschnabeltyrann",

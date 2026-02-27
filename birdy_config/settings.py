@@ -17,11 +17,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
+
     'rest_framework',
     'corsheaders',
     'django_filters',
-    
+
     'sensors.apps.SensorsConfig',
     'media_manager.apps.MediaManagerConfig',
     'species.apps.SpeciesConfig',
@@ -131,7 +131,7 @@ CELERY_TASK_QUEUES = {
 }
 
 # Celery Beat Schedule - Periodische Tasks
-from celery.schedules import crontab
+from celery.schedules import crontab  # noqa: E402
 
 CELERY_BEAT_SCHEDULE = {
     # Weight Messungen werden direkt in start_birdy gemacht (GPIO Zugriff nur in einem Prozess)

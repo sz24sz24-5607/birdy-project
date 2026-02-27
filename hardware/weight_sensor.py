@@ -2,8 +2,9 @@
 Weight Sensor Interface - HX711 Wägezelle
 Verwendet die HX711 Library von tatobari
 """
-import time
 import logging
+import time
+
 from django.conf import settings
 
 logger = logging.getLogger('birdy')
@@ -35,45 +36,45 @@ class WeightSensor:
         self.last_weight_stable = None  # Letztes stabiles Gewicht
         self.last_drift_compensation = time.time()
         self.drift_compensation_interval = 3600  # Alle 60 Minuten prüfen
-        
+
     def initialize(self):
         """Initialisiere HX711 Sensor"""
         if HX711 is None:
             logger.error("HX711 library not available")
             return False
-            
+
         try:
             logger.info(f"Pins used for weight sensor pins DT:{self.dt_pin}, SCK:{self.sck_pin}")
             self.hx711 = HX711(dout_pin=self.dt_pin, pd_sck_pin=self.sck_pin, gain=128, channel='A')
-            
+
             # Reset sensor
             result = self.hx711.reset()
             if result:			# you can check if the reset was successful
-                logger.info(f"Reset of weight sensor successfull")
+                logger.info("Reset of weight sensor successfull")
             else:
-                logger.error(f"Reset of weight sensor not successfull")
-            
+                logger.error("Reset of weight sensor not successfull")
+
             time.sleep(0.5)
-            
+
             self.is_initialized = True
             logger.info(f"Weight sensor initialized on pins DT:{self.dt_pin}, SCK:{self.sck_pin}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize weight sensor: {e}")
             self.is_initialized = False
             return False
-    
+
     def tare(self, samples=10):
         """Tara - Nullstellung des Sensors"""
         if not self.is_initialized:
             logger.warning("Sensor not initialized, attempting to initialize...")
             if not self.initialize():
                 return False
-        
+
         try:
             logger.info("Performing tare...")
-            
+
             # Mehrere Messungen für Durchschnitt
             readings = []
             for i in range(samples):
@@ -86,23 +87,23 @@ class WeightSensor:
                 except Exception as e:
                     logger.warning(f"Reading {i} failed: {e}")
                     continue
-            
+
             if not readings:
                 logger.error("No valid readings during tare")
                 return False
-            
+
             self.tare_offset = sum(readings) / len(readings)
             logger.info(f"Tare completed: offset = {self.tare_offset:.2f} (from {len(readings)} readings)")
             return True
-                
+
         except Exception as e:
             logger.error(f"Tare failed: {e}")
             return False
-    
+
     def calibrate(self, known_weight_grams, samples=10):
         """
         Kalibrierung mit bekanntem Gewicht
-        
+
         Args:
             known_weight_grams: Bekanntes Kalibriergewicht in Gramm
             samples: Anzahl Messungen für Durchschnitt
@@ -111,25 +112,25 @@ class WeightSensor:
             logger.warning("Sensor not initialized, attempting to initialize...")
             if not self.initialize():
                 return False
-        
+
         try:
             # Erst tarieren (ohne Gewicht)
             print("\n=== Wägezellen Kalibrierung ===")
             print("Schritt 1: Tara (Nullstellung)")
             print("Bitte alle Gewichte entfernen und ENTER drücken...")
             input()
-            
+
             if not self.tare(samples):
                 print("✗ Tara fehlgeschlagen!")
                 return False
-            
+
             print("✓ Tara abgeschlossen\n")
-            
+
             # Dann mit bekanntem Gewicht messen
             print(f"Schritt 2: Kalibrierung mit {known_weight_grams}g")
             print(f"Bitte {known_weight_grams}g auflegen und ENTER drücken...")
             input()
-            
+
             print(f"Messe {samples} Werte...")
             readings = []
             for i in range(samples):
@@ -142,32 +143,32 @@ class WeightSensor:
                 except Exception as e:
                     logger.warning(f"Reading {i} failed: {e}")
                     continue
-            
+
             if not readings:
                 logger.error("No valid readings during calibration")
                 print("✗ Keine gültigen Messungen!")
                 return False
-            
+
             avg_reading = sum(readings) / len(readings)
             self.calibration_factor = avg_reading / known_weight_grams
-            
+
             logger.info(f"Calibration completed: factor = {self.calibration_factor:.6f}")
-            print(f"\n✓ Kalibrierung abgeschlossen!")
+            print("\n✓ Kalibrierung abgeschlossen!")
             print(f"Kalibrierungsfaktor: {self.calibration_factor:.6f}")
             print(f"Durchschnittswert: {avg_reading:.2f}")
             print(f"Erwartetes Gewicht: {known_weight_grams}g")
             print(f"Berechnetes Gewicht: {avg_reading / self.calibration_factor:.2f}g")
-            
+
             # Speichere Kalibrierung
             self._save_calibration()
-            
+
             return True
-                
+
         except Exception as e:
             logger.error(f"Calibration failed: {e}")
             print(f"✗ Kalibrierung fehlgeschlagen: {e}")
             return False
-    
+
     def read_weight_grams(self, samples=10):
         """
         Lese aktuelles Gewicht in Gramm mit verbesserter Filterung
@@ -191,7 +192,7 @@ class WeightSensor:
                         for j in range (NUMBER_HW_MEASUREMENTS):
                             readings.append(val[j])
                     time.sleep(0.1)  # Längere Pause zwischen Messungen
-                except:
+                except Exception:
                     continue
 
             if not readings:
@@ -250,11 +251,11 @@ class WeightSensor:
             logger.debug(f"Weight sensor: raw={weight_grams:.1f}g, smoothed={smoothed_weight:.1f}g, spread={spread:.2f}, zero={len(self.zero_readings)}, stable={len(self.stable_readings)}")
 
             return smoothed_weight
-            
+
         except Exception as e:
             logger.error(f"Failed to read weight: {e}")
             return None
-    
+
     def _compensate_drift(self):
         """
         Kompensiere Temperaturdrift automatisch
@@ -337,24 +338,24 @@ class WeightSensor:
         try:
             import json
             from pathlib import Path
-            
+
             config_file = Path(__file__).parent.parent / 'weight_calibration.json'
-            
+
             data = {
                 'calibration_factor': self.calibration_factor,
                 'tare_offset': self.tare_offset,
                 'timestamp': time.time()
             }
-            
+
             with open(config_file, 'w') as f:
                 json.dump(data, f, indent=2)
-            
+
             logger.info(f"Calibration saved to {config_file}")
             print(f"Kalibrierung gespeichert in: {config_file}")
-            
+
         except Exception as e:
             logger.error(f"Failed to save calibration: {e}")
-    
+
     def _load_calibration(self):
         """Lade gespeicherte Kalibrierungsdaten"""
         try:
@@ -377,11 +378,11 @@ class WeightSensor:
 
             logger.info(f"Calibration loaded: factor={self.calibration_factor:.6f}, offset={self.tare_offset:.2f}")
             return True
-            
+
         except Exception as e:
             logger.warning(f"Could not load calibration: {e}")
             return False
-    
+
     def cleanup(self):
         """Cleanup GPIO"""
         try:

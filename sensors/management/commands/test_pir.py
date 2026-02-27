@@ -2,6 +2,7 @@
 Test-Command für den PIR Bewegungssensor
 """
 import time
+
 from django.core.management.base import BaseCommand
 
 
@@ -17,8 +18,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from hardware.pir_sensor import PIRSensorController
         from django.conf import settings
+
+        from hardware.pir_sensor import PIRSensorController
 
         duration = options['duration']
         pin = settings.BIRDY_SETTINGS['PIR_SENSOR_PIN']
@@ -111,5 +113,5 @@ class Command(BaseCommand):
             lgpio.gpio_free(sensor.chip_handle, pin)
             lgpio.gpiochip_close(sensor.chip_handle)
             self.stdout.write(self.style.SUCCESS('\n✓ Sensor geschlossen'))
-        except:
+        except Exception:
             pass

@@ -16,10 +16,11 @@ Including another URLconf
 """
 
 # --- birdy_config/urls.py ---
-from django.contrib import admin
-from django.urls import path, include
 from django.conf import settings
+from django.contrib import admin
+from django.urls import include, path, re_path
 from django.views.static import serve
+
 from . import views
 
 urlpatterns = [
@@ -31,7 +32,6 @@ urlpatterns = [
 ]
 
 # Media files (Videos, Photos) - direkt über Django ausliefern (kein Nginx)
-from django.urls import re_path
 urlpatterns += [
     re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
 ]

@@ -2,6 +2,7 @@
 Test-Command für den Gewichtssensor (HX711)
 """
 import time
+
 from django.core.management.base import BaseCommand
 
 

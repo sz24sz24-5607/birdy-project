@@ -2,10 +2,9 @@
 Birdy Django Production Settings
 """
 import os
-from pathlib import Path
 
 # Import base settings
-from .settings import *
+from .settings import *  # noqa: F401, F403, F405
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-CHANGE-THIS-IN-PRODUCTION')

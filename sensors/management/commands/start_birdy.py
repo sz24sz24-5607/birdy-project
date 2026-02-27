@@ -1,5 +1,6 @@
-from django.core.management.base import BaseCommand
 import logging
+
+from django.core.management.base import BaseCommand
 
 logger = logging.getLogger('birdy')
 
@@ -9,34 +10,34 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS('=== Starting Birdy System ==='))
-        
+
         # 1. Hardware initialisieren
         self.stdout.write('Initializing hardware...')
-        
-        from hardware.weight_sensor import get_weight_sensor
-        from hardware.pir_sensor import get_pir_sensor
+
         from hardware.camera import get_camera
-        from ml_models.bird_classifier import get_classifier
+        from hardware.pir_sensor import get_pir_sensor
+        from hardware.weight_sensor import get_weight_sensor
         from homeassistant.mqtt_client import get_mqtt_client
-        
+        from ml_models.bird_classifier import get_classifier
+
         weight_sensor = get_weight_sensor()
         if weight_sensor.is_initialized:
             self.stdout.write(self.style.SUCCESS('✓ Weight sensor initialized'))
         else:
             self.stdout.write(self.style.ERROR('✗ Weight sensor failed'))
-        
+
         pir_sensor = get_pir_sensor()
         if pir_sensor.is_initialized:
             self.stdout.write(self.style.SUCCESS('✓ PIR sensor initialized'))
         else:
             self.stdout.write(self.style.ERROR('✗ PIR sensor failed'))
-        
+
         camera = get_camera()
         if camera.is_initialized:
             self.stdout.write(self.style.SUCCESS('✓ Camera initialized'))
         else:
             self.stdout.write(self.style.ERROR('✗ Camera failed'))
-        
+
         # 2. ML Model laden
         self.stdout.write('Loading ML model...')
         classifier = get_classifier()
@@ -44,7 +45,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('✓ Classifier initialized'))
         else:
             self.stdout.write(self.style.WARNING('⚠ Classifier not initialized'))
-        
+
         # 3. MQTT Client
         self.stdout.write('Connecting to MQTT...')
         mqtt = get_mqtt_client()
@@ -52,7 +53,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('✓ MQTT connected'))
         else:
             self.stdout.write(self.style.WARNING('⚠ MQTT not connected'))
-        
+
         # 4. PIR Callbacks registrieren
         self.stdout.write('Registering PIR callbacks...')
         from services.bird_detection import get_detection_service
@@ -63,7 +64,7 @@ class Command(BaseCommand):
         pir_sensor.register_motion_callback(detection_service.handle_motion_detected)
 
         self.stdout.write(self.style.SUCCESS('✓ Detection service registered'))
-        
+
         # System läuft
         self.stdout.write(self.style.SUCCESS('\n=== Birdy System Running ==='))
         self.stdout.write('System is monitoring for birds...')
@@ -73,8 +74,10 @@ class Command(BaseCommand):
         try:
             # Main Loop mit Weight Messungen
             import time
-            from sensors.models import WeightMeasurement, SensorStatus
+
             from django.utils import timezone
+
+            from sensors.models import SensorStatus, WeightMeasurement
 
             last_weight_measurement = time.time()
             last_sensor_status_update = time.time()

@@ -2,11 +2,12 @@
 Camera Worker Process - Isolierter Kamera-Prozess
 Läuft unabhängig vom Hauptprozess und kann bei Fehlern neu gestartet werden
 """
-import time
 import logging
 import subprocess
-from pathlib import Path
+import time
 from multiprocessing import Process, Queue
+from pathlib import Path
+
 from django.conf import settings
 
 logger = logging.getLogger('birdy')
@@ -140,7 +141,6 @@ class CameraWorkerProcess:
         """Worker Loop - läuft in separatem Prozess"""
         # Imports müssen im Worker-Prozess sein
         from picamera2 import Picamera2
-        from PIL import Image
 
         camera = None
 
@@ -191,7 +191,7 @@ class CameraWorkerProcess:
                     camera.stop()
                     camera.close()
                     logger.info("[Worker] Camera cleaned up")
-                except:
+                except Exception:
                     pass
 
     def _record_video_worker(self, camera, output_path):

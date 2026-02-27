@@ -4,70 +4,71 @@ Home Assistant MQTT Client Integration
 import json
 import logging
 import os
-from django.conf import settings
+
 import paho.mqtt.client as mqtt
+from django.conf import settings
 
 logger = logging.getLogger('birdy')
 
 
 class HomeAssistantMQTT:
     """MQTT Client für Home Assistant Integration"""
-    
+
     def __init__(self):
         self.broker = settings.BIRDY_SETTINGS['MQTT_BROKER']
         self.port = settings.BIRDY_SETTINGS['MQTT_PORT']
         self.username = settings.BIRDY_SETTINGS['MQTT_USERNAME']
         self.password = settings.BIRDY_SETTINGS['MQTT_PASSWORD']
         self.topic_prefix = settings.BIRDY_SETTINGS['MQTT_TOPIC_PREFIX']
-        
+
         self.client = None
         self.is_connected = False
-        
+
     def initialize(self):
         """Initialisiere MQTT Client"""
         try:
             self.client = mqtt.Client(client_id="birdy_feeder")
-            
+
             # Callbacks setzen
             self.client.on_connect = self._on_connect
             self.client.on_disconnect = self._on_disconnect
-            
+
             # Authentication wenn konfiguriert
             if self.username and self.password:
                 self.client.username_pw_set(self.username, self.password)
-            
+
             # Verbinde zu Broker
             self.client.connect(self.broker, self.port, keepalive=60)
-            
+
             # Starte Loop in separatem Thread
             self.client.loop_start()
-            
+
             logger.info(f"MQTT client connecting to {self.broker}:{self.port}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize MQTT client: {e}")
             return False
-    
+
     def _on_connect(self, client, userdata, flags, rc):
         """Callback bei Verbindung"""
         if rc == 0:
             self.is_connected = True
             logger.info("MQTT connected successfully")
-            
+
             # Publiziere Discovery Messages für Home Assistant
             self._publish_discovery()
         else:
             logger.error(f"MQTT connection failed with code {rc}")
-    
+
     def _on_disconnect(self, client, userdata, rc):
         """Callback bei Disconnect"""
         self.is_connected = False
         logger.warning(f"MQTT disconnected with code {rc}")
-    
+
     def _publish_discovery(self):
         """Publiziere Home Assistant Discovery Messages"""
-        
+
         # Sensor: Futtermenge
         weight_config = {
             "name": "Birdy Feed Weight",
@@ -83,11 +84,11 @@ class HomeAssistantMQTT:
             }
         }
         self.client.publish(
-            f"homeassistant/sensor/birdy/feed_weight/config",
+            "homeassistant/sensor/birdy/feed_weight/config",
             json.dumps(weight_config),
             retain=True
         )
-        
+
         # Binary Sensor: Vogel anwesend
         bird_config = {
             "name": "Birdy Bird Present",
@@ -102,11 +103,11 @@ class HomeAssistantMQTT:
             }
         }
         self.client.publish(
-            f"homeassistant/binary_sensor/birdy/bird_detected/config",
+            "homeassistant/binary_sensor/birdy/bird_detected/config",
             json.dumps(bird_config),
             retain=True
         )
-        
+
         # Sensor: Letzte Spezies (mit JSON-Attributen für URLs)
         species_config = {
             "name": "Birdy Last Species",
@@ -120,7 +121,7 @@ class HomeAssistantMQTT:
             }
         }
         self.client.publish(
-            f"homeassistant/sensor/birdy/species/config",
+            "homeassistant/sensor/birdy/species/config",
             json.dumps(species_config),
             retain=True
         )
@@ -137,11 +138,11 @@ class HomeAssistantMQTT:
             }
         }
         self.client.publish(
-            f"homeassistant/camera/birdy/last_visitor/config",
+            "homeassistant/camera/birdy/last_visitor/config",
             json.dumps(camera_config),
             retain=True
         )
-        
+
         # Sensor: Besuche heute
         visits_config = {
             "name": "Birdy Visits Today",
@@ -155,26 +156,26 @@ class HomeAssistantMQTT:
             }
         }
         self.client.publish(
-            f"homeassistant/sensor/birdy/visits_today/config",
+            "homeassistant/sensor/birdy/visits_today/config",
             json.dumps(visits_config),
             retain=True
         )
-        
+
         logger.info("Home Assistant discovery messages published")
-    
+
     def publish_weight(self, weight_grams):
         """
         Publiziere Futtermenge
-        
+
         Args:
             weight_grams: Gewicht in Gramm
         """
         if not self.is_connected:
             return
-        
+
         topic = f"{self.topic_prefix}/feed/weight"
         self.client.publish(topic, f"{weight_grams:.1f}")
-    
+
     def publish_bird_detected(self, detection):
         """
         Publiziere Vogel-Detektion
@@ -242,14 +243,14 @@ class HomeAssistantMQTT:
             logger.debug(f"Published photo to MQTT camera ({len(image_data)} bytes)")
         except Exception as e:
             logger.error(f"Failed to publish photo to MQTT: {e}")
-    
+
     def publish_bird_left(self):
         """Publiziere dass Vogel weg ist"""
         if not self.is_connected:
             return
-        
+
         self.client.publish(f"{self.topic_prefix}/bird/detected", "OFF")
-    
+
     def publish_daily_stats(self, date):
         """
         Publiziere tägliche Statistiken
@@ -260,8 +261,9 @@ class HomeAssistantMQTT:
         if not self.is_connected:
             return
 
+        from django.db.models import Avg, Count
+
         from species.models import BirdDetection
-        from django.db.models import Count, Avg
 
         # Gesamtbesuche heute (nur gültige Besuche mit Spezies)
         total_visits = BirdDetection.objects.filter(
@@ -301,7 +303,7 @@ class HomeAssistantMQTT:
             f"{self.topic_prefix}/stats/daily",
             json.dumps(stats_data)
         )
-    
+
     def cleanup(self):
         """Cleanup MQTT Client"""
         try:

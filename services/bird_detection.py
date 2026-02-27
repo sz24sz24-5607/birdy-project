@@ -5,10 +5,10 @@ import logging
 import shutil
 import threading
 from pathlib import Path
-from datetime import datetime
+
+from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
-from celery import shared_task
 
 logger = logging.getLogger('birdy')
 
@@ -42,11 +42,11 @@ class BirdDetectionService:
         )
         detection_thread.start()
         logger.debug(f"Detection thread started: {detection_thread.name}")
-    
+
     def process_detection(self, pir_event_id):
         """
         Vollständiger Detection-Workflow
-        
+
         1. Nehme Video auf (mit Pre-Trigger)
         2. Extrahiere Best Frame
         3. Klassifiziere Vogel
@@ -54,10 +54,10 @@ class BirdDetectionService:
         5. Update Statistiken
         6. Benachrichtige Home Assistant
         """
-        from sensors.models import PIREvent
         from media_manager.models import Photo, Video
+        from sensors.models import PIREvent
         from species.models import BirdDetection, BirdSpecies, DailyStatistics
-        
+
         try:
             pir_event = PIREvent.objects.get(id=pir_event_id)
 
@@ -77,11 +77,11 @@ class BirdDetectionService:
                 return
 
             logger.info("Starting video recording workflow...")
-            
+
             timestamp = timezone.now()
             date_path = timestamp.strftime('%Y/%m/%d')
             filename_base = timestamp.strftime('%Y%m%d_%H%M%S')
-            
+
             # Video aufnehmen
             video_filename = f"{filename_base}.mp4"
             video_path = self.storage_path / 'videos' / date_path / video_filename
@@ -212,7 +212,7 @@ class BirdDetectionService:
             try:
                 with Image.open(photo_path) as img:
                     width, height = img.size
-            except:
+            except Exception:
                 width, height = 0, 0
 
             relative_photo_path = str(Path('photos') / date_path / photo_filename)
@@ -259,9 +259,9 @@ class BirdDetectionService:
                     logger.info("Home Assistant notified")
             except Exception as e:
                 logger.error(f"Failed to notify Home Assistant: {e}")
-            
+
             logger.info("Bird detection workflow completed successfully")
-            
+
         except Exception as e:
             logger.error(f"Error in detection workflow: {e}", exc_info=True)
 

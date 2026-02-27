@@ -3,8 +3,9 @@
 Generate PWA Icons for Birdy
 Erstellt Icons mit gezeichnetem rotem Vogel
 """
-from PIL import Image, ImageDraw
 from pathlib import Path
+
+from PIL import Image, ImageDraw
 
 # Icon-Größen für PWA (Android, iOS)
 ICON_SIZES = [72, 96, 128, 144, 152, 192, 384, 512]
@@ -163,7 +164,7 @@ def main():
     favicon_path = Path(__file__).parent / 'static' / 'favicon.ico'
     img = Image.open(favicon_32_path)
     img.save(favicon_path, format='ICO', sizes=[(32, 32)])
-    print(f"✓ Created favicon.ico")
+    print("✓ Created favicon.ico")
 
     # Erstelle apple-touch-icon (180x180)
     print("\nCreating Apple Touch Icon...")

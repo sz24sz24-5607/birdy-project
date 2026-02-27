@@ -2,9 +2,10 @@
 PIR Motion Sensor Interface - Native lgpio Implementation
 Raspberry Pi 5 optimiert - verwendet lgpio direkt ohne gpiozero
 """
-import time
 import logging
 import threading
+import time
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -76,7 +77,7 @@ class PIRSensorController:
             if self.chip_handle is not None:
                 try:
                     lgpio.gpiochip_close(self.chip_handle)
-                except:
+                except Exception:
                     pass
                 self.chip_handle = None
             return False
@@ -205,7 +206,7 @@ class PIRSensorController:
             return False
         try:
             return lgpio.gpio_read(self.chip_handle, self.pin) == 1
-        except:
+        except Exception:
             return False
 
     def wait_for_motion(self, timeout=None):
@@ -270,7 +271,7 @@ class PIRSensorController:
                 try:
                     lgpio.gpio_free(self.chip_handle, self.pin)
                     logger.debug(f"GPIO{self.pin} freed")
-                except:
+                except Exception:
                     pass
 
                 lgpio.gpiochip_close(self.chip_handle)

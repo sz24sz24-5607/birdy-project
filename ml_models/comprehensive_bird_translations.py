@@ -1035,7 +1035,7 @@ def main():
     untranslated = sum(1 for i, name in enumerate(german_names)
                       if name == scientific_names[i] and name != "background")
 
-    print(f"Translation complete!")
+    print("Translation complete!")
     print(f"Output written to: {output_file}")
     print(f"Total lines: {total}")
     print(f"Translated to German: {translated}")

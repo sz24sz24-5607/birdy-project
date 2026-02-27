@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.utils.safestring import mark_safe
-from .models import Photo, Video, MediaStorageStats
+
+from .models import MediaStorageStats, Photo, Video
 
 
 @admin.register(Photo)
@@ -91,17 +92,17 @@ class VideoAdmin(admin.ModelAdmin):
 
 @admin.register(MediaStorageStats)
 class MediaStorageStatsAdmin(admin.ModelAdmin):
-    list_display = ['updated_at', 'total_photos', 'total_videos', 
+    list_display = ['updated_at', 'total_photos', 'total_videos',
                     'usb_usage_display', 'usb_available_display']
-    readonly_fields = ['updated_at', 'total_photos', 'total_videos', 
+    readonly_fields = ['updated_at', 'total_photos', 'total_videos',
                        'photos_size_bytes', 'videos_size_bytes',
                        'usb_total_bytes', 'usb_used_bytes', 'usb_available_bytes',
                        'usb_usage_display']
-    
+
     def usb_usage_display(self, obj):
         return f"{obj.usb_usage_percent:.1f}%"
     usb_usage_display.short_description = 'USB Usage'
-    
+
     def usb_available_display(self, obj):
         size = obj.usb_available_bytes
         for unit in ['B', 'KB', 'MB', 'GB']:
@@ -110,9 +111,9 @@ class MediaStorageStatsAdmin(admin.ModelAdmin):
             size /= 1024.0
         return f"{size:.1f} TB"
     usb_available_display.short_description = 'Available Space'
-    
+
     def has_add_permission(self, request):
         return False
-    
+
     def has_delete_permission(self, request, obj=None):
         return False

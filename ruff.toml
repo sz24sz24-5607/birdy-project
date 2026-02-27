@@ -1,0 +1,23 @@
+# Ruff – Python Linter Konfiguration
+# https://docs.astral.sh/ruff/configuration/
+
+line-length = 120
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports, undefined names)
+    "I",   # isort (import sorting)
+    "DJ",  # flake8-django
+]
+ignore = [
+    "E501",  # line too long (wird durch line-length abgedeckt)
+]
+
+[lint.per-file-ignores]
+"*/migrations/*.py" = ["E501", "F401"]  # Django-Migrations ignorieren
+"birdy_config/settings_production.py" = ["F405"]  # star-import aus settings.py ist Django-Standard
+
+[lint.isort]
+known-third-party = ["django", "celery", "rest_framework"]

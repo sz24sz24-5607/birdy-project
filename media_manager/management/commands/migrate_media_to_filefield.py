@@ -2,6 +2,7 @@
 Management Command - Migriere usb_path zu file Field
 """
 from django.core.management.base import BaseCommand
+
 from media_manager.models import Photo, Video
 
 

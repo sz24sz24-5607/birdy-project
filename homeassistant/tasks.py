@@ -4,6 +4,7 @@ Celery Tasks für Home Assistant
 import json
 import logging
 import os
+
 from celery import shared_task
 from django.utils import timezone
 
@@ -15,10 +16,11 @@ def publish_status_task():
     """Publiziere Status zu Home Assistant (alle 60s via Celery Beat)"""
     try:
         import paho.mqtt.publish as publish
+        from django.conf import settings
+        from django.db.models import Avg, Count
+
         from sensors.models import SensorStatus
         from species.models import BirdDetection
-        from django.db.models import Count, Avg
-        from django.conf import settings
 
         # Verwende direkt paho publish (single shot) statt persistente Verbindung
         # Dies vermeidet Probleme mit mehreren Worker-Prozessen

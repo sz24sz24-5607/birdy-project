@@ -2,6 +2,7 @@
 Celery Configuration mit optionalen Periodic Tasks
 """
 import os
+
 from celery import Celery
 from celery.schedules import crontab
 
@@ -47,7 +48,7 @@ if ENABLE_PERIODIC_TASKS:
             'task': 'sensors.tasks.measure_weight_task',
             'schedule': 300.0,  # 5 Minuten - Backup Task (liest nur aus DB)
         },
-    }   
+    }
 
 
 @app.task(bind=True)

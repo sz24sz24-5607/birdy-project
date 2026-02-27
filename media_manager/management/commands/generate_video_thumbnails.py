@@ -1,11 +1,13 @@
 """
 Management Command - Generiere Thumbnails für vorhandene Videos
 """
-from django.core.management.base import BaseCommand
-from django.conf import settings
-from media_manager.models import Video
-from hardware.camera import CameraController
 from pathlib import Path
+
+from django.conf import settings
+from django.core.management.base import BaseCommand
+
+from hardware.camera import CameraController
+from media_manager.models import Video
 
 
 class Command(BaseCommand):

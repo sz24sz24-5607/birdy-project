@@ -2,14 +2,13 @@
 Raspberry Pi Camera - H.264/MP4 Video Recording
 """
 import io
-import time
 import logging
 import subprocess
+import time
 from pathlib import Path
-from picamera2 import Picamera2
-from picamera2.encoders import H264Encoder, Quality, MJPEGEncoder
-from picamera2.outputs import FileOutput
+
 from django.conf import settings
+from picamera2 import Picamera2
 from PIL import Image
 
 logger = logging.getLogger('birdy')
@@ -20,21 +19,21 @@ USE_CAMERA_WORKER = True
 
 class CameraController:
     """Controller für Raspberry Pi Camera"""
-    
+
     def __init__(self):
         self.camera = None
         self.is_initialized = False
         self.is_recording = False
-        
+
         self.resolution = settings.BIRDY_SETTINGS['CAMERA_RESOLUTION']
         self.framerate = settings.BIRDY_SETTINGS['CAMERA_FRAMERATE']
         self.recording_duration = settings.BIRDY_SETTINGS['RECORDING_DURATION_SECONDS']
-        
+
     def initialize(self):
         """Initialisiere Kamera"""
         try:
             self.camera = Picamera2()
-            
+
             # Video-Config für kontinuierliche Aufnahme
             video_config = self.camera.create_video_configuration(
                 main={"size": self.resolution, "format": "RGB888"},
@@ -43,35 +42,35 @@ class CameraController:
             self.camera.configure(video_config)
             self.camera.start()
             time.sleep(2)
-            
+
             self.is_initialized = True
             logger.info(f"Camera initialized: {self.resolution} @ {self.framerate}fps")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize camera: {e}")
             return False
-    
+
     def capture_photo(self, output_path):
         """Fotografiere ein Einzelbild"""
         if not self.is_initialized:
             return None
-        
+
         try:
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             array = self.camera.capture_array()
             image = Image.fromarray(array)
             image.save(str(output_path), quality=95)
-            
+
             logger.info(f"Photo captured: {output_path}")
             return output_path
-            
+
         except Exception as e:
             logger.error(f"Failed to capture photo: {e}")
             return None
-    
+
     def record_video_with_pretrigger(self, output_path):
         """
         Nehme Video auf - mit rpicam-vid, korrekte Camera-Freigabe
@@ -155,7 +154,7 @@ class CameraController:
                     try:
                         subprocess.run(['pkill', '-9', 'libcamera'], capture_output=True, timeout=1)
                         time.sleep(0.5)
-                    except:
+                    except Exception:
                         pass
 
                 # Create fresh camera instance
@@ -180,7 +179,7 @@ class CameraController:
                 try:
                     if hasattr(self, 'camera') and self.camera:
                         self.camera.close()
-                except:
+                except Exception:
                     pass
                 self.camera = None
 
@@ -191,7 +190,7 @@ class CameraController:
                     logger.error(f"Camera reinitialization failed after {max_attempts} attempts")
                     self.is_initialized = False
                     raise
-    
+
     def extract_best_frame(self, video_path, output_path):
         """Extrahiere mittleres Frame aus MP4 Video mit ffmpeg"""
         try:
@@ -262,24 +261,24 @@ class CameraController:
         except Exception as e:
             logger.error(f"Failed to extract candidate frames: {e}")
             return []
-    
+
     def get_stream_frame(self):
         """Live-Stream Frame"""
         if not self.is_initialized:
             return None
-        
+
         try:
             array = self.camera.capture_array()
             image = Image.fromarray(array)
-            
+
             buffer = io.BytesIO()
             image.save(buffer, format='JPEG', quality=85)
             return buffer.getvalue()
-            
+
         except Exception as e:
             logger.error(f"Failed to get stream frame: {e}")
             return None
-    
+
     def cleanup(self):
         """Cleanup"""
         try:

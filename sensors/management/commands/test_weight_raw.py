@@ -3,8 +3,9 @@ Test-Command für den Gewichtssensor - Rohdaten ohne Filter
 Gibt direkt die HX711 Raw-Werte aus
 """
 import time
-from django.core.management.base import BaseCommand
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
@@ -138,7 +139,7 @@ class Command(BaseCommand):
         # Cleanup
         try:
             hx.reset()
-        except:
+        except Exception:
             pass
 
         self.stdout.write(self.style.SUCCESS('\n✓ Test beendet'))
