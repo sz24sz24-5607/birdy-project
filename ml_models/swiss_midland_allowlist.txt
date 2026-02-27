@@ -1,0 +1,224 @@
+# Swiss Mittelland Bird Allowlist
+# Wissenschaftliche Namen genau wie in labels_en.txt
+# Nur diese Arten werden bei der Klassifikation berücksichtigt.
+# "background" wird automatisch immer erlaubt (kein Eintrag nötig).
+# Zeilen mit # werden ignoriert.
+
+# Drosseln & Rotkehlchen / Thrushes & Robin
+Erithacus rubecula
+Turdus merula
+Turdus philomelos
+Turdus viscivorus
+Turdus pilaris
+Phoenicurus phoenicurus
+Phoenicurus ochruros
+Saxicola rubetra
+Saxicola rubicola
+Oenanthe oenanthe
+Luscinia svecica
+Muscicapa striata
+Ficedula hypoleuca
+
+# Grasmücken & Laubsänger / Warblers
+Sylvia atricapilla
+Sylvia communis
+Phylloscopus collybita
+Regulus regulus
+Regulus ignicapilla
+
+# Meisen / Tits
+Parus major
+Cyanistes caeruleus
+Periparus ater
+Aegithalos caudatus
+Sitta europaea
+
+# Zaunkönig, Braunelle
+Troglodytes troglodytes
+Prunella modularis
+
+# Finken / Finches
+Fringilla coelebs
+Fringilla montifringilla
+Chloris chloris
+Carduelis carduelis
+Spinus spinus
+Pyrrhula pyrrhula
+Coccothraustes coccothraustes
+Acanthis flammea
+Loxia curvirostra
+Serinus serinus
+
+# Ammern / Buntings
+Emberiza citrinella
+Emberiza schoeniclus
+Emberiza calandra
+
+# Spatzen / Sparrows
+Passer domesticus
+Passer montanus
+
+# Star / Starling
+Sturnus vulgaris
+
+# Würger / Shrikes
+Lanius collurio
+Lanius excubitor
+
+# Stelzen & Pieper / Wagtails & Pipits
+Motacilla alba
+Motacilla cinerea
+Motacilla flava
+Anthus pratensis
+
+# Lerchen / Larks
+Alauda arvensis
+Galerida cristata
+
+# Seidenschwanz / Waxwing
+Bombycilla garrulus
+
+# Schwalben / Swallows
+Hirundo rustica
+Delichon urbicum
+Riparia riparia
+
+# Mauersegler / Swift
+Apus apus
+
+# Spechte / Woodpeckers
+Dendrocopos major
+Picus viridis
+
+# Eisvogel / Kingfisher
+Alcedo atthis
+
+# Bienenfresser / Bee-eater
+Merops apiaster
+
+# Wiedehopf / Hoopoe
+Upupa epops
+
+# Tauben / Pigeons & Doves
+Columba palumbus
+Columba livia
+Streptopelia decaocto
+Streptopelia turtur
+
+# Kuckuck / Cuckoo
+Cuculus canorus
+
+# Eulen / Owls
+Tyto alba
+Athene noctua
+Asio otus
+Asio flammeus
+
+# Wasseramsel / Dipper
+Cinclus cinclus
+
+# Greifvögel / Raptors
+Buteo buteo
+Buteo lagopus
+Falco tinnunculus
+Falco subbuteo
+Falco peregrinus
+Accipiter nisus
+Accipiter gentilis
+Milvus milvus
+Milvus migrans
+Circus aeruginosus
+Circus cyaneus
+Pandion haliaetus
+Aquila chrysaetos
+Gyps fulvus
+
+# Rabenvögel / Corvids
+Corvus corax
+Corvus corone
+Corvus cornix
+Corvus monedula
+Corvus frugilegus
+Garrulus glandarius
+Pica pica
+Pyrrhocorax graculus
+
+# Kranich / Crane
+Grus grus
+
+# Limikolen / Waders
+Vanellus vanellus
+Charadrius dubius
+Gallinago gallinago
+Actitis hypoleucos
+Tringa nebularia
+Tringa ochropus
+Tringa glareola
+Tringa totanus
+Numenius arquata
+Numenius phaeopus
+Limosa limosa
+Platalea leucorodia
+Plegadis falcinellus
+
+# Möwen / Gulls
+Chroicocephalus ridibundus
+Larus canus
+Larus michahellis
+Larus argentatus
+Larus fuscus
+
+# Taucher / Grebes
+Podiceps cristatus
+Podiceps nigricollis
+Podiceps grisegena
+Podiceps auritus
+Tachybaptus ruficollis
+
+# Reiher & Störche / Herons & Storks
+Ardea cinerea
+Ardea purpurea
+Ardea alba
+Egretta garzetta
+Nycticorax nycticorax
+Ardeola ralloides
+Bubulcus ibis
+Ciconia ciconia
+
+# Kormoran / Cormorant
+Phalacrocorax carbo
+
+# Rallen / Rails & Coots
+Gallinula chloropus
+Fulica atra
+
+# Enten / Ducks
+Anas platyrhynchos
+Anas crecca
+Anas acuta
+Anas strepera
+Anas clypeata
+Anas penelope
+Anas querquedula
+Aythya ferina
+Aythya fuligula
+Aythya marila
+Netta rufina
+Bucephala clangula
+Mergus merganser
+Mergus serrator
+
+# Schwäne & Gänse / Swans & Geese
+Cygnus olor
+Cygnus cygnus
+Anser anser
+Anser albifrons
+Branta canadensis
+Branta leucopsis
+Alopochen aegyptiaca
+Tadorna tadorna
+Tadorna ferruginea
+
+# Hühnervögel / Gallinaceous Birds
+Phasianus colchicus
+Alectoris rufa

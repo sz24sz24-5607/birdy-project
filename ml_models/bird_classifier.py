@@ -23,6 +23,8 @@ class BirdClassifier:
         self.output_details = None
         self.is_initialized = False
         self.labels = {}
+        self.sci_labels = {}      # {index: scientific_name}
+        self.allowed_indices = None  # None = kein Filter, set = Swiss Mittelland Filter
         
     def initialize(self):
         """Initialisiere TensorFlow Lite Modell"""
@@ -56,9 +58,9 @@ class BirdClassifier:
             return False
     
     def _load_labels(self):
-        """Lade Label-Mapping"""
+        """Lade Label-Mapping (Deutsch) und Swiss Mittelland Allowlist"""
         labels_path = self.model_path.parent / 'labels.txt'
-        
+
         if labels_path.exists():
             try:
                 with open(labels_path, 'r', encoding='utf-8') as f:
@@ -73,6 +75,56 @@ class BirdClassifier:
             logger.warning(f"Labels file not found: {labels_path}")
             num_classes = self.output_details[0]['shape'][1]
             self.labels = {i: f"Bird_Species_{i}" for i in range(num_classes)}
+
+        # Wissenschaftliche Namen laden (für Allowlist-Mapping)
+        sci_labels_path = self.model_path.parent / 'labels_en.txt'
+        if sci_labels_path.exists():
+            try:
+                with open(sci_labels_path, 'r', encoding='utf-8') as f:
+                    for idx, line in enumerate(f):
+                        line = line.strip()
+                        if line:
+                            self.sci_labels[idx] = line
+            except Exception as e:
+                logger.error(f"Failed to load scientific labels: {e}")
+
+        # Swiss Mittelland Allowlist laden
+        allowlist_path = self.model_path.parent / 'swiss_midland_allowlist.txt'
+        if allowlist_path.exists() and self.sci_labels:
+            try:
+                allowed_sci_names = set()
+                with open(allowlist_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            allowed_sci_names.add(line)
+
+                # Wissenschaftliche Namen → Indices
+                sci_to_idx = {name: idx for idx, name in self.sci_labels.items()}
+                self.allowed_indices = set()
+
+                for sci_name in allowed_sci_names:
+                    if sci_name in sci_to_idx:
+                        self.allowed_indices.add(sci_to_idx[sci_name])
+                    else:
+                        logger.warning(f"Swiss allowlist: species not found in model: {sci_name}")
+
+                # Background immer erlauben (damit Nicht-Vogel-Frames korrekt erkannt werden)
+                background_idx = sci_to_idx.get('background')
+                if background_idx is not None:
+                    self.allowed_indices.add(background_idx)
+
+                logger.info(
+                    f"Swiss Mittelland filter active: {len(self.allowed_indices)} "
+                    f"allowed classes ({len(allowed_sci_names)} species + background)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to load Swiss Mittelland allowlist: {e}")
+                self.allowed_indices = None
+        else:
+            if not allowlist_path.exists():
+                logger.info("No Swiss Mittelland allowlist found – using all species")
+            self.allowed_indices = None
     
     def preprocess_image(self, image_path):
         """Bereite Bild für Inferenz vor"""
@@ -132,8 +184,18 @@ class BirdClassifier:
             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
             predictions = output_data[0]
             
-            # Top-K
-            top_indices = np.argsort(predictions)[-top_k:][::-1]
+            # Top-K mit optionalem Swiss Mittelland Filter
+            if self.allowed_indices is not None:
+                # Nur erlaubte Arten berücksichtigen
+                allowed_list = [idx for idx in self.allowed_indices if idx < len(predictions)]
+                if allowed_list:
+                    allowed_preds = predictions[allowed_list]
+                    best_order = np.argsort(allowed_preds)[-top_k:][::-1]
+                    top_indices = [allowed_list[i] for i in best_order]
+                else:
+                    top_indices = list(np.argsort(predictions)[-top_k:][::-1])
+            else:
+                top_indices = list(np.argsort(predictions)[-top_k:][::-1])
 
             # Normalisiere Confidence auf 0-1 wenn Werte > 1
             # (manche Modelle geben 0-100 zurück, wir brauchen 0-1)

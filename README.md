@@ -25,6 +25,7 @@ Birdy turns a regular bird feeder into an intelligent monitoring station. A PIR 
 
 - **Real-time Bird Detection** - PIR motion sensor triggers 4-second video capture at 720p/15fps
 - **ML Species Identification** - TensorFlow Lite classifier identifies bird species in ~50-100ms
+- **Regional Species Filter** - Swiss Mittelland allowlist (151 species) prevents implausible detections like Cardinals or Cockatoos
 - **Web Dashboard** - Responsive Django web app with live stats, photo gallery, and video playback
 - **Home Assistant Integration** - MQTT auto-discovery for feed weight, species, and visit counters
 - **Weight Monitoring** - HX711 load cell tracks food level with automatic drift compensation
@@ -160,11 +161,34 @@ Birdy publishes to MQTT with Home Assistant auto-discovery:
 2. Camera records 4s video (H.264, 720p)
 3. 8 frames extracted evenly across the video via ffmpeg (every ~0.5s)
 4. TensorFlow Lite classifies each frame (~50-100ms per frame)
+   - Only species from `ml_models/swiss_midland_allowlist.txt` are considered (151 Swiss Mittelland species)
+   - The species with the highest score among allowed species wins per frame
 5. Frame with highest non-background confidence is selected as the best frame
 6. If no valid bird detected (confidence < 50% or all frames = background): video deleted, no DB entry
 7. Results stored in PostgreSQL with best photo + video
 8. MQTT notification sent to Home Assistant
 9. Web dashboard updates automatically
+
+### Regional Species Filter
+
+The global iNaturalist model covers ~964 bird species worldwide. Without filtering, implausible
+species were regularly detected (Northern Cardinal, Monk Parakeet, Galah, Kea, etc.).
+
+The allowlist `ml_models/swiss_midland_allowlist.txt` restricts detections to **151 species**
+plausible for the Swiss Mittelland — resident birds, common migrants, and waterbirds. The file
+uses scientific names and can be freely extended. Restart `birdy-detection` after changes.
+
+| Allowlist groups | Examples |
+|---|---|
+| Songbirds | Robin, Blackbird, Tits, Finches, Buntings, Sparrows |
+| Swallows / Swifts | Barn Swallow, House Martin, Common Swift |
+| Woodpeckers | Great Spotted, Green Woodpecker |
+| Pigeons | Wood Pigeon, Collared Dove |
+| Owls | Barn Owl, Little Owl, Long-eared Owl |
+| Raptors | Buzzard, Kestrel, Sparrowhawk, Red Kite |
+| Corvids | Magpie, Jay, Jackdaw, Rook, Raven |
+| Waterbirds | Mallard, Coot, Grey Heron, Cormorant |
+| Swans & Geese | Mute Swan, Greylag Goose, Egyptian Goose |
 
 ## Mechanical Construction
 

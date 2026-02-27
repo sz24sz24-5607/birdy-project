@@ -6,6 +6,7 @@ Ein Detection Event wird nur dann als **gültiger Besuch** gezählt, wenn:
 
 1. **Confidence >= 50%** (`MIN_CONFIDENCE_SPECIES` in settings.py)
 2. **Spezies ist NICHT "background"** (letzte Zeile in labels.txt)
+3. **Spezies ist im Swiss Mittelland Allowlist** (`ml_models/swiss_midland_allowlist.txt`)
 
 ## Konfiguration
 
@@ -24,6 +25,77 @@ BIRDY_SETTINGS = {
 
 - **`MIN_CONFIDENCE_THRESHOLD`** (70%): Interner Classifier-Schwellwert, wird von `is_confident_detection()` genutzt
 - **`MIN_CONFIDENCE_SPECIES`** (50%): Schwellwert für gültige Besuche - bestimmt ob eine Detection als Besuch zählt
+
+## Swiss Mittelland Regionaler Filter
+
+Das verwendete ML-Modell (iNaturalist) kennt ~964 Vogelarten weltweit. Ohne Filter wurden
+regelmässig unplausible Arten erkannt, z.B. **Rotkardinal** (Nordamerika), **Mönchssittich**
+(Südamerika) oder **Rosakakadu** (Australien).
+
+### Funktionsweise
+
+Beim Start lädt der Classifier die Datei `ml_models/swiss_midland_allowlist.txt` mit
+wissenschaftlichen Namen der im Schweizer Mittelland vorkommenden Arten. Nur diese Arten
+werden bei der Klassifikation berücksichtigt. Der **höchste Score unter den erlaubten Arten**
+gewinnt. `background` ist immer erlaubt, damit Nicht-Vogel-Frames korrekt erkannt werden.
+
+```
+Log-Meldung beim Start:
+  Swiss Mittelland filter active: 152 allowed classes (151 species + background)
+```
+
+### Allowlist verwalten
+
+Die Datei `ml_models/swiss_midland_allowlist.txt` enthält wissenschaftliche Namen
+(eine Art pro Zeile, `#`-Zeilen werden ignoriert):
+
+```
+# Finken / Finches
+Fringilla coelebs
+Chloris chloris
+Carduelis carduelis
+...
+```
+
+**Arten hinzufügen/entfernen:** Datei editieren, dann `birdy-detection` neu starten.
+
+### Erlaubte Artengruppen (151 Arten)
+
+| Gruppe | Beispiele |
+|---|---|
+| Singvögel | Rotkehlchen, Amsel, Meisen, Finken, Ammern, Spatzen, Stelzen |
+| Schwalben / Segler | Rauchschwalbe, Mehlschwalbe, Mauersegler |
+| Spechte | Buntspecht, Grünspecht |
+| Tauben | Ringeltaube, Türkentaube, Straßentaube |
+| Eulen | Schleiereule, Steinkauz, Waldohreule |
+| Greifvögel | Bussard, Turmfalke, Sperber, Rotmilan |
+| Rabenvögel | Amsel, Elster, Eichelhäher, Dohle, Saatkrähe |
+| Wasservögel | Stockente, Blässhuhn, Graureiher, Kormoran |
+| Schwäne & Gänse | Höckerschwan, Graugans, Nilgans |
+| Limikolen | Kiebitz, Bekassine, Flussuferläufer |
+
+### Beispiel aus den Logs (27. Feb 2026)
+
+**Ohne Filter: Mönchssittich gespeichert (falsch)**
+```
+Frame 2: Haussperling    82%   ← wäre korrekt
+Frame 7: Mönchssittich  136%   ← gewann, weil global höchster Score
+→ Detection saved: Mönchssittich  ✗
+```
+
+**Mit Filter: Haussperling gespeichert (korrekt)**
+```
+Frame 2: Haussperling    82%   ← höchster Score unter Schweizer Arten
+Frame 7: Mönchssittich  136%   ← gefiltert (nicht in Allowlist)
+→ Detection saved: Haussperling  ✓
+```
+
+**Mit Filter: Falsch-Positiv verhindert**
+```
+Frame 5: Schwarzkopfmeise  61%  ← gefiltert (nordamerikanisch)
+Frame 3: Kohlmeise         40%  ← Schweizer Kandidat, aber 40% < 50%
+→ Not a valid visit          ✓
+```
 
 ## Implementierung
 
@@ -192,9 +264,32 @@ Um den Schwellwert zu ändern, editiere `birdy_config/settings.py`:
   is_background = species_label.lower() == 'background'
   ```
 
+### Problem: Art in den Logs erkannt aber nicht gespeichert
+
+**Ursache:** Art ist nicht im Swiss Mittelland Allowlist
+
+**Prüfen:**
+```bash
+grep "Swiss Mittelland" /home/pi/birdy_project/logs/birdy.log | tail -1
+# Swiss Mittelland filter active: 152 allowed classes (151 species + background)
+```
+
+**Lösung:** Wissenschaftlichen Namen in `ml_models/swiss_midland_allowlist.txt` eintragen,
+dann `sudo systemctl restart birdy-detection`.
+
+### Problem: Filter lädt nicht (labels_en.txt fehlt)
+
+**Ursache:** `labels_en.txt` fehlt im `ml_models/`-Ordner
+
+**Lösung:** Ohne `labels_en.txt` kann kein Mapping von wissenschaftlichen Namen zu Model-Indices
+aufgebaut werden → Filter wird deaktiviert (alle Arten erlaubt, Warning im Log).
+
 ## Zusammenfassung
 
-**Gültige Besuche = bestes Frame aus 8 Kandidaten hat Confidence >= 50% UND ist kein "background"**
+**Gültige Besuche = bestes Frame aus 8 Kandidaten erfüllt alle drei Bedingungen:**
+1. Confidence >= 50%
+2. Kein "background"
+3. Art ist im Swiss Mittelland Allowlist (`ml_models/swiss_midland_allowlist.txt`)
 
 Ungültige Detections werden **nicht** in die DB gespeichert:
 - ❌ Kein DB-Eintrag
