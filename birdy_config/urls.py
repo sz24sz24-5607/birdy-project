@@ -25,6 +25,7 @@ from . import views
 urlpatterns = [
     path('', views.home, name='home'),
     path('detections/', views.detections, name='detections'),
+    path('statistics/', views.statistics, name='statistics'),
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
 ]

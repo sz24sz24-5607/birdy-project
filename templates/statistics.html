@@ -1,0 +1,394 @@
+{% extends "base.html" %}
+{% block title %}Statistiken – Birdy{% endblock %}
+
+{% block content %}
+<style>
+    .filter-card {
+        background: white;
+        padding: 1.25rem 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: flex-end;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .filter-group label {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #555;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+
+    .filter-group select {
+        padding: 0.45rem 0.75rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        background: #fafafa;
+        min-width: 140px;
+        cursor: pointer;
+    }
+
+    .filter-group select:focus {
+        outline: none;
+        border-color: #667eea;
+        background: white;
+    }
+
+    .btn-filter {
+        padding: 0.48rem 1.4rem;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+        align-self: flex-end;
+    }
+
+    .btn-filter:hover { background: #5568d3; }
+
+    .btn-reset {
+        padding: 0.48rem 1rem;
+        background: #eee;
+        color: #555;
+        border: none;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background 0.2s;
+        align-self: flex-end;
+    }
+
+    .btn-reset:hover { background: #ddd; }
+
+    .charts-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 800px) {
+        .charts-grid { grid-template-columns: 1fr; }
+    }
+
+    .chart-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .chart-card h2 {
+        margin-bottom: 1rem;
+        color: #333;
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    .chart-wrapper {
+        position: relative;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+    }
+
+    .data-table th {
+        text-align: left;
+        padding: 0.6rem 1rem;
+        border-bottom: 2px solid #eee;
+        color: #555;
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        background: #fafafa;
+    }
+
+    .data-table td {
+        padding: 0.65rem 1rem;
+        border-bottom: 1px solid #f0f0f0;
+        color: #333;
+    }
+
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .data-table tr:hover td { background: #f9f9ff; }
+
+    .rank-badge {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        line-height: 24px;
+        text-align: center;
+        border-radius: 50%;
+        background: #667eea;
+        color: white;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+
+    .stat-card .sub {
+        font-size: 0.82rem;
+        color: #888;
+        margin-top: 0.2rem;
+    }
+
+    .period-label {
+        color: #667eea;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+        font-size: 1.05rem;
+    }
+
+    .no-data {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: #888;
+        font-size: 1.05rem;
+    }
+</style>
+
+<h2 style="margin-bottom: 1rem;">📊 Statistiken</h2>
+
+<!-- Filter-Leiste -->
+<form method="get" class="filter-card">
+    <div class="filter-group">
+        <label>Jahr</label>
+        <select name="year">
+            {% for year in available_years %}
+                <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="filter-group">
+        <label>Monat</label>
+        <select name="month">
+            <option value="0" {% if not selected_month %}selected{% endif %}>Ganzes Jahr</option>
+            <option value="1"  {% if selected_month == 1  %}selected{% endif %}>Januar</option>
+            <option value="2"  {% if selected_month == 2  %}selected{% endif %}>Februar</option>
+            <option value="3"  {% if selected_month == 3  %}selected{% endif %}>März</option>
+            <option value="4"  {% if selected_month == 4  %}selected{% endif %}>April</option>
+            <option value="5"  {% if selected_month == 5  %}selected{% endif %}>Mai</option>
+            <option value="6"  {% if selected_month == 6  %}selected{% endif %}>Juni</option>
+            <option value="7"  {% if selected_month == 7  %}selected{% endif %}>Juli</option>
+            <option value="8"  {% if selected_month == 8  %}selected{% endif %}>August</option>
+            <option value="9"  {% if selected_month == 9  %}selected{% endif %}>September</option>
+            <option value="10" {% if selected_month == 10 %}selected{% endif %}>Oktober</option>
+            <option value="11" {% if selected_month == 11 %}selected{% endif %}>November</option>
+            <option value="12" {% if selected_month == 12 %}selected{% endif %}>Dezember</option>
+        </select>
+    </div>
+
+    <div class="filter-group">
+        <label>Vogelart</label>
+        <select name="species_id">
+            <option value="0" {% if not selected_species_id %}selected{% endif %}>Alle Arten</option>
+            {% for species in species_list %}
+                <option value="{{ species.id }}" {% if selected_species_id == species.id %}selected{% endif %}>
+                    {{ species.common_name_de }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <button type="submit" class="btn-filter">Anwenden</button>
+    <a href="{% url 'statistics' %}" class="btn-reset">Zurücksetzen</a>
+</form>
+
+{% if total_visits > 0 %}
+
+<!-- Zeitraum-Label -->
+<p class="period-label">
+    Zeitraum: {{ selected_year }}{% if selected_month_name %} / {{ selected_month_name }}{% endif %}{% if selected_species_id %} – {% for s in species_list %}{% if s.id == selected_species_id %}{{ s.common_name_de }}{% endif %}{% endfor %}{% endif %}
+</p>
+
+<!-- KPI-Karten -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>Besuche gesamt</h3>
+        <div class="value">{{ total_visits }}</div>
+        <div class="sub">im gewählten Zeitraum</div>
+    </div>
+    <div class="stat-card">
+        <h3>Erkannte Arten</h3>
+        <div class="value">{{ unique_species_count }}</div>
+        <div class="sub">verschiedene Vogelarten</div>
+    </div>
+    {% if best_label %}
+    <div class="stat-card">
+        <h3>Aktivster Monat</h3>
+        <div class="value" style="font-size: 1.4rem;">{{ best_label }}</div>
+        <div class="sub">{{ selected_year }}</div>
+    </div>
+    {% endif %}
+    <div class="stat-card">
+        <h3>Häufigste Art</h3>
+        <div class="value" style="font-size: 1.3rem;">{{ top_species_name }}</div>
+        <div class="sub">im gewählten Zeitraum</div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div class="charts-grid">
+    <div class="chart-card">
+        <h2>{{ bar_title }}</h2>
+        <div class="chart-wrapper">
+            <canvas id="barChart" height="220"></canvas>
+        </div>
+    </div>
+    <div class="chart-card">
+        <h2>Artenverteilung</h2>
+        <div class="chart-wrapper">
+            <canvas id="donutChart" height="220"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Datentabelle -->
+<div class="card">
+    {% if table_mode == 'months' %}
+        <h2>Monatsübersicht {{ selected_year }}</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Monat</th>
+                    <th>Besuche</th>
+                    <th>Arten</th>
+                    <th>Häufigste Art</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in table_rows %}
+                <tr>
+                    <td><strong>{{ row.month_name }}</strong></td>
+                    <td>{{ row.total_visits }}</td>
+                    <td>{{ row.species_count }}</td>
+                    <td>{{ row.top_species }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <h2>Arten im Detail</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Vogelart</th>
+                    <th>Besuche</th>
+                    <th>Einzigartige Tage</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in table_rows %}
+                <tr>
+                    <td><span class="rank-badge">{{ forloop.counter }}</span></td>
+                    <td>
+                        <strong>{{ row.species.common_name_de }}</strong>
+                        {% if row.species.scientific_name %}
+                            <br><small style="color:#888; font-style:italic;">{{ row.species.scientific_name }}</small>
+                        {% endif %}
+                    </td>
+                    <td>{{ row.visit_count }}</td>
+                    <td>{{ row.unique_days }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+    const PURPLE = '#667eea';
+    const COLORS = [
+        '#667eea','#764ba2','#f093fb','#43e97b','#fa709a',
+        '#4facfe','#f7971e','#43b89c','#a18cd1','#fbc2eb'
+    ];
+
+    // Balkendiagramm
+    const barCtx = document.getElementById('barChart').getContext('2d');
+    new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: {{ bar_labels_json|safe }},
+            datasets: [{
+                label: 'Besuche',
+                data: {{ bar_values_json|safe }},
+                backgroundColor: PURPLE + 'cc',
+                borderColor: PURPLE,
+                borderWidth: 1,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { stepSize: 1 },
+                    grid: { color: '#f0f0f0' }
+                },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+
+    // Donut-Diagramm
+    const donutCtx = document.getElementById('donutChart').getContext('2d');
+    new Chart(donutCtx, {
+        type: 'doughnut',
+        data: {
+            labels: {{ donut_labels_json|safe }},
+            datasets: [{
+                data: {{ donut_values_json|safe }},
+                backgroundColor: COLORS,
+                borderWidth: 2,
+                borderColor: '#fff',
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { font: { size: 11 }, padding: 8 }
+                }
+            },
+            cutout: '60%'
+        }
+    });
+</script>
+
+{% else %}
+<div class="card">
+    <div class="no-data">
+        🐦 Noch keine Statistiken für diesen Zeitraum vorhanden.<br>
+        <small style="color:#aaa; display:block; margin-top:0.5rem;">
+            Statistiken werden täglich um Mitternacht aktualisiert.
+        </small>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

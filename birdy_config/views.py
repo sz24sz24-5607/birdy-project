@@ -1,11 +1,13 @@
 """
 Birdy Web Views - Frontend Website
 """
+import json
 from django.shortcuts import render
 from django.core.paginator import Paginator
 from django.utils import timezone
 from datetime import datetime
-from species.models import BirdDetection, BirdSpecies, DailyStatistics
+from django.db.models import Sum, Count
+from species.models import BirdDetection, BirdSpecies, DailyStatistics, MonthlyStatistics, YearlyStatistics
 from media_manager.models import Photo
 
 
@@ -106,3 +108,179 @@ def detections(request):
     }
 
     return render(request, 'detections.html', context)
+
+
+def statistics(request):
+    """Monats- und Jahresstatistiken"""
+    MONTH_NAMES = [
+        '', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+        'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
+    ]
+
+    current_year = timezone.now().year
+    current_month = timezone.now().month
+
+    # Verfügbare Jahre (aus DB)
+    available_years = list(
+        MonthlyStatistics.objects.values_list('year', flat=True)
+        .distinct().order_by('-year')
+    )
+    if not available_years:
+        available_years = [current_year]
+
+    # Filter aus GET-Parametern
+    try:
+        selected_year = int(request.GET.get('year', available_years[0]))
+    except (ValueError, IndexError):
+        selected_year = current_year
+
+    try:
+        selected_month = int(request.GET.get('month', 0)) or None
+    except ValueError:
+        selected_month = None
+
+    try:
+        selected_species_id = int(request.GET.get('species_id', 0)) or None
+    except ValueError:
+        selected_species_id = None
+
+    # Artenliste für Filter (nur Arten mit Statistiken)
+    species_list = BirdSpecies.objects.filter(
+        monthlystatistics__isnull=False
+    ).distinct().order_by('common_name_de')
+
+    # --- Basisfilter ---
+    monthly_qs = MonthlyStatistics.objects.filter(year=selected_year)
+    if selected_month:
+        monthly_qs = monthly_qs.filter(month=selected_month)
+    if selected_species_id:
+        monthly_qs = monthly_qs.filter(species_id=selected_species_id)
+
+    # --- Balkendiagramm-Daten ---
+    if selected_month:
+        # Monatsansicht: Top-Arten als Balken
+        bar_items = list(
+            monthly_qs.select_related('species')
+            .order_by('-visit_count')[:10]
+        )
+        bar_labels = [item.species.common_name_de for item in bar_items]
+        bar_values = [item.visit_count for item in bar_items]
+        bar_title = f'Top Arten – {MONTH_NAMES[selected_month]} {selected_year}'
+    else:
+        # Jahresansicht: Besuche je Monat
+        monthly_totals = {
+            row['month']: row['total']
+            for row in monthly_qs.values('month').annotate(total=Sum('visit_count'))
+        }
+        bar_labels = MONTH_NAMES[1:]  # Jan–Dez
+        bar_values = [monthly_totals.get(m, 0) for m in range(1, 13)]
+        bar_title = f'Besuche pro Monat – {selected_year}'
+
+    # --- Donut-Diagramm: Artenverteilung ---
+    donut_qs = MonthlyStatistics.objects.filter(year=selected_year)
+    if selected_month:
+        donut_qs = donut_qs.filter(month=selected_month)
+    if selected_species_id:
+        donut_qs = donut_qs.filter(species_id=selected_species_id)
+
+    top_species_raw = list(
+        donut_qs.values('species__common_name_de')
+        .annotate(total=Sum('visit_count'))
+        .order_by('-total')[:8]
+    )
+    donut_labels = [row['species__common_name_de'] for row in top_species_raw]
+    donut_values = [row['total'] for row in top_species_raw]
+    # Restliche als "Andere"
+    all_total = donut_qs.aggregate(t=Sum('visit_count'))['t'] or 0
+    top_total = sum(donut_values)
+    if all_total - top_total > 0:
+        donut_labels.append('Andere')
+        donut_values.append(all_total - top_total)
+
+    # --- KPI-Karten ---
+    total_visits = all_total
+    unique_species_count = donut_qs.values('species').distinct().count()
+
+    if selected_month:
+        best_label = None  # kein "bester Monat" bei Monatsansicht
+    else:
+        best_month_row = (
+            monthly_qs.values('month')
+            .annotate(total=Sum('visit_count'))
+            .order_by('-total')
+            .first()
+        )
+        best_label = MONTH_NAMES[best_month_row['month']] if best_month_row else None
+
+    top_species_row = (
+        donut_qs.values('species__common_name_de')
+        .annotate(total=Sum('visit_count'))
+        .order_by('-total')
+        .first()
+    )
+    top_species_name = top_species_row['species__common_name_de'] if top_species_row else '–'
+
+    # --- Datentabelle ---
+    if selected_month:
+        # Arten-Tabelle für gewählten Monat
+        table_rows = list(
+            monthly_qs.select_related('species').order_by('-visit_count')
+        )
+        table_mode = 'species'
+    else:
+        # Monats-Tabelle für gewähltes Jahr: aggregiert über Arten
+        month_agg = {
+            row['month']: row
+            for row in monthly_qs.values('month')
+            .annotate(
+                total_visits=Sum('visit_count'),
+                species_count=Count('species', distinct=True),
+            )
+        }
+        # Top-Art je Monat
+        top_per_month = {}
+        for row in (
+            monthly_qs.values('month', 'species__common_name_de')
+            .annotate(total=Sum('visit_count'))
+            .order_by('month', '-total')
+        ):
+            if row['month'] not in top_per_month:
+                top_per_month[row['month']] = row['species__common_name_de']
+
+        table_rows = []
+        for m in range(1, 13):
+            agg = month_agg.get(m)
+            if agg:
+                table_rows.append({
+                    'month_name': MONTH_NAMES[m],
+                    'total_visits': agg['total_visits'],
+                    'species_count': agg['species_count'],
+                    'top_species': top_per_month.get(m, '–'),
+                })
+        table_mode = 'months'
+
+    selected_month_name = MONTH_NAMES[selected_month] if selected_month else None
+
+    context = {
+        'available_years': available_years,
+        'selected_year': selected_year,
+        'selected_month': selected_month,
+        'selected_month_name': selected_month_name,
+        'selected_species_id': selected_species_id,
+        'species_list': species_list,
+        # KPI
+        'total_visits': total_visits,
+        'unique_species_count': unique_species_count,
+        'best_label': best_label,
+        'top_species_name': top_species_name,
+        # Charts (als JSON für Script-Tag)
+        'bar_labels_json': json.dumps(bar_labels),
+        'bar_values_json': json.dumps(bar_values),
+        'bar_title': bar_title,
+        'donut_labels_json': json.dumps(donut_labels),
+        'donut_values_json': json.dumps(donut_values),
+        # Tabelle
+        'table_rows': table_rows,
+        'table_mode': table_mode,
+    }
+    return render(request, 'statistics.html', context)
