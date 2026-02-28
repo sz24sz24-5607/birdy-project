@@ -194,6 +194,10 @@ uses scientific names and can be freely extended. Restart `birdy-detection` afte
 
 The birdhouse enclosure is a hybrid construction with 3D-printed and CNC-milled parts. All source files and manufacturing data are in the `mechanic/` folder.
 
+<p align="center">
+  <img src="mechanic/PXL_20260228_120017612.jpg" alt="Finished Birdy birdhouse mounted on a pole" width="400">
+</p>
+
 ### 3D-Printed Parts (FDM)
 
 | File | Description |
