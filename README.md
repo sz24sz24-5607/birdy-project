@@ -239,6 +239,16 @@ birdy_project/
     └── mill/            # CNC milling files (Estlcam, G-code)
 ```
 
+## Example Detections
+
+<p align="center">
+  <img src="examples/20260227_123020.jpg" alt="Grünfink (European Greenfinch)" width="49%">
+  <img src="examples/20260227_142819.jpg" alt="Blaumeise (Blue Tit)" width="49%">
+</p>
+<p align="center">
+  <em>Left: European Greenfinch &nbsp;|&nbsp; Right: Blue Tit picking up a seed</em>
+</p>
+
 ## License
 
 This project is open source. Feel free to build your own smart bird feeder!
