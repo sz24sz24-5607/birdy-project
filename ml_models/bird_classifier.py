@@ -185,35 +185,36 @@ class BirdClassifier:
             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
             predictions = output_data[0]
 
+            # Softmax über alle Klassen → korrekte Wahrscheinlichkeiten 0-1
+            # Float-Cast nötig: quantisierte Modelle liefern int8/uint8 → sonst Integer-Overflow
+            predictions = predictions.astype(np.float32)
+            exp_preds = np.exp(predictions - np.max(predictions))
+            probabilities = exp_preds / np.sum(exp_preds)
+
             # Top-K mit optionalem Swiss Mittelland Filter
             if self.allowed_indices is not None:
                 # Nur erlaubte Arten berücksichtigen
-                allowed_list = [idx for idx in self.allowed_indices if idx < len(predictions)]
+                allowed_list = [idx for idx in self.allowed_indices if idx < len(probabilities)]
                 if allowed_list:
-                    allowed_preds = predictions[allowed_list]
-                    best_order = np.argsort(allowed_preds)[-top_k:][::-1]
+                    allowed_probs = probabilities[allowed_list]
+                    best_order = np.argsort(allowed_probs)[-top_k:][::-1]
                     top_indices = [allowed_list[i] for i in best_order]
                 else:
-                    top_indices = list(np.argsort(predictions)[-top_k:][::-1])
+                    top_indices = list(np.argsort(probabilities)[-top_k:][::-1])
             else:
-                top_indices = list(np.argsort(predictions)[-top_k:][::-1])
-
-            # Normalisiere Confidence auf 0-1 wenn Werte > 1
-            # (manche Modelle geben 0-100 zurück, wir brauchen 0-1)
-            max_pred = float(np.max(predictions))
-            scale_factor = 100.0 if max_pred > 1.0 else 1.0
+                top_indices = list(np.argsort(probabilities)[-top_k:][::-1])
 
             results = {
                 'top_prediction': {
                     'class_id': int(top_indices[0]),
                     'label': self.labels.get(int(top_indices[0]), 'Unknown'),
-                    'confidence': float(predictions[top_indices[0]]) / scale_factor
+                    'confidence': float(probabilities[top_indices[0]])
                 },
                 'top_k_predictions': [
                     {
                         'class_id': int(idx),
                         'label': self.labels.get(int(idx), 'Unknown'),
-                        'confidence': float(predictions[idx]) / scale_factor
+                        'confidence': float(probabilities[idx])
                     }
                     for idx in top_indices
                 ],

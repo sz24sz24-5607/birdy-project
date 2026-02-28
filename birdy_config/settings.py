@@ -192,6 +192,8 @@ BIRDY_SETTINGS = {
     'RECORDING_DURATION_SECONDS': 4,  # Gekürzt von 10s auf 4s
     'MIN_CONFIDENCE_THRESHOLD': 0.7,
     'MIN_CONFIDENCE_SPECIES': 0.5,  # Minimale Confidence für gültigen Besuch (50%)
+    # Arten die wie Background behandelt werden (Modell verwechselt sie mit Hintergrund)
+    'IGNORED_SPECIES': {'Felsentaube'},
     'ML_MODEL_PATH': BASE_DIR / 'ml_models' / 'bird_classifier.tflite',
 
     # MQTT Home Assistant Integration

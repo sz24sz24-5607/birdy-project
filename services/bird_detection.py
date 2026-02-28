@@ -113,6 +113,7 @@ class BirdDetectionService:
             best_confidence = -1.0
             total_processing_ms = 0
             min_confidence = settings.BIRDY_SETTINGS['MIN_CONFIDENCE_SPECIES']
+            ignored_species = settings.BIRDY_SETTINGS.get('IGNORED_SPECIES', set())
 
             if classifier.is_initialized:
                 for i, frame_path in enumerate(candidate_frames):
@@ -123,12 +124,16 @@ class BirdDetectionService:
                     total_processing_ms += result['processing_time_ms']
                     top_pred = result['top_prediction']
                     confidence = top_pred['confidence']
-                    is_background = top_pred['label'].lower() == 'background'
+                    is_background = (
+                        top_pred['label'].lower() == 'background'
+                        or top_pred['label'] in ignored_species
+                    )
 
                     logger.debug(
                         f"Frame {i+1}/{len(candidate_frames)}: "
                         f"{top_pred['label']} ({confidence:.1%})"
-                        + (" [background]" if is_background else "")
+                        + (" [ignored]" if top_pred['label'] in ignored_species else "")
+                        + (" [background]" if top_pred['label'].lower() == 'background' else "")
                     )
 
                     if not is_background and confidence > best_confidence:
