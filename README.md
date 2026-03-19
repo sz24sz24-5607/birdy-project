@@ -23,7 +23,7 @@ Birdy turns a regular bird feeder into an intelligent monitoring station. A PIR 
 
 ## Features
 
-- **Real-time Bird Detection** - PIR motion sensor triggers 4-second video capture at 720p/15fps
+- **Real-time Bird Detection** - PIR motion sensor triggers dynamic video recording (up to 30s) at 720p/15fps
 - **ML Species Identification** - TensorFlow Lite classifier identifies bird species in ~50-100ms
 - **Regional Species Filter** - Swiss Mittelland allowlist (151 species) prevents implausible detections like Cardinals or Cockatoos
 - **Web Dashboard** - Responsive Django web app with live stats, photo gallery, and video playback
@@ -35,13 +35,13 @@ Birdy turns a regular bird feeder into an intelligent monitoring station. A PIR 
 
 ## Hardware
 
-| Component | Model | GPIO |
-|---|---|---|
-| Single Board Computer | Raspberry Pi 5 | - |
-| Camera | Pi Camera Module | CSI |
-| Motion Sensor | HC-SR501 PIR | GPIO 17 |
-| Weight Sensor | HX711 + Load Cell | GPIO 5 (DT), GPIO 6 (SCK) |
-| Storage | USB Drive mounted at `/mnt/birdy_storage` | USB |
+| Component             | Model                                     | GPIO                      |
+| --------------------- | ----------------------------------------- | ------------------------- |
+| Single Board Computer | Raspberry Pi 5                            | -                         |
+| Camera                | Pi Camera Module                          | CSI                       |
+| Motion Sensor         | HC-SR501 PIR                              | GPIO 17                   |
+| Weight Sensor         | HX711 + Load Cell                         | GPIO 5 (DT), GPIO 6 (SCK) |
+| Storage               | USB Drive mounted at `/mnt/birdy_storage` | USB                       |
 
 ## Architecture
 
@@ -59,16 +59,16 @@ PIR Trigger ──> Video Recording ──> Frame Extraction ──> ML Classifi
 
 ### Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Web Framework | Django 5.0, Django REST Framework |
-| Database | PostgreSQL 12 |
-| Task Queue | Celery + Redis |
-| ML Inference | TensorFlow Lite (iNaturalist bird model) |
-| Video Encoding | H.264 via rpicam-vid |
-| WSGI Server | Gunicorn |
-| Home Automation | MQTT (paho-mqtt) |
-| Camera | picamera2 |
+| Layer           | Technology                               |
+| --------------- | ---------------------------------------- |
+| Web Framework   | Django 5.0, Django REST Framework        |
+| Database        | PostgreSQL 12                            |
+| Task Queue      | Celery + Redis                           |
+| ML Inference    | TensorFlow Lite (iNaturalist bird model) |
+| Video Encoding  | H.264 via rpicam-vid                     |
+| WSGI Server     | Gunicorn                                 |
+| Home Automation | MQTT (paho-mqtt)                         |
+| Camera          | picamera2                                |
 
 ## Installation
 
@@ -136,9 +136,14 @@ All settings are in `birdy_config/settings.py`. Key parameters:
 BIRDY_SETTINGS = {
     'CAMERA_RESOLUTION': (1280, 720),
     'CAMERA_FRAMERATE': 15,
-    'RECORDING_DURATION_SECONDS': 4,
-    'MIN_CONFIDENCE_THRESHOLD': 0.7,    # Display threshold
-    'MIN_CONFIDENCE_SPECIES': 0.5,      # Valid visit threshold
+    'RECORDING_DURATION_SECONDS': 4,         # Fallback static duration
+    'MAX_RECORDING_DURATION_SECONDS': 30,    # Dynamic recording max
+    'PIR_ABSENCE_THRESHOLD_SECONDS': 3,      # PIR LOW for Xs → stop recording
+    'VISIT_CONTINUATION_WINDOW_SECONDS': 300, # Same species within 5min = same visit
+    'MIN_CONFIDENCE_THRESHOLD': 0.7,         # Display threshold
+    'MIN_CONFIDENCE_SPECIES': 0.5,           # Valid visit threshold
+    'BIRD_DETECTOR_ENABLED': True,           # SSD MobileNet V2 size/position filter
+    'MIN_BIRD_COVERAGE': 0.05,               # Min bird bbox area (5% of frame)
 }
 ```
 
@@ -148,26 +153,29 @@ Sensitive values (DB password, MQTT credentials, secret key) are loaded from `.e
 
 Birdy publishes to MQTT with Home Assistant auto-discovery:
 
-| Entity | Topic | Description |
-|---|---|---|
-| Feed Weight | `birdy/feed/weight` | Current food weight (grams) |
-| Bird Detected | `birdy/bird/detected` | Binary motion sensor |
-| Last Species | `birdy/bird/species` | Last identified species |
-| Visits Today | `birdy/stats/today` | Daily visit counter |
+| Entity        | Topic                 | Description                 |
+| ------------- | --------------------- | --------------------------- |
+| Feed Weight   | `birdy/feed/weight`   | Current food weight (grams) |
+| Bird Detected | `birdy/bird/detected` | Binary motion sensor        |
+| Last Species  | `birdy/bird/species`  | Last identified species     |
+| Visits Today  | `birdy/stats/today`   | Daily visit counter         |
 
 ## Detection Pipeline
 
 1. PIR sensor triggers on motion
-2. Camera records 4s video (H.264, 720p)
-3. 8 frames extracted evenly across the video via ffmpeg (every ~0.5s)
-4. TensorFlow Lite classifies each frame (~50-100ms per frame)
+2. Camera records video dynamically (H.264, 720p): stops when PIR LOW for 3s, max 30s
+3. Frames extracted proportionally via ffmpeg (2fps, min 8): e.g. 15s → 30 frames
+4. Bird Size/Position Filter (SSD MobileNet V2 COCO): frames without a sufficiently large
+   bird in the feeder area are discarded (fail-open: if all rejected, all frames are kept)
+5. TensorFlow Lite classifies remaining frames (~50-100ms per frame)
    - Only species from `ml_models/swiss_midland_allowlist.txt` are considered (151 Swiss Mittelland species)
    - The species with the highest score among allowed species wins per frame
-5. Frame with highest non-background confidence is selected as the best frame
-6. If no valid bird detected (confidence < 50% or all frames = background): video deleted, no DB entry
-7. Results stored in PostgreSQL with best photo + video
-8. MQTT notification sent to Home Assistant
-9. Web dashboard updates automatically
+6. Frame with highest non-background confidence is selected as the best frame
+7. If no valid bird detected (confidence < 50% or all frames = background): video deleted, no DB entry
+8. Visit deduplication: same species within 5 minutes → `is_new_visit=False`, statistics not inflated
+9. Results stored in PostgreSQL with best photo + video
+10. MQTT notification sent to Home Assistant
+11. Web dashboard updates automatically
 
 ### Regional Species Filter
 
@@ -178,17 +186,17 @@ The allowlist `ml_models/swiss_midland_allowlist.txt` restricts detections to **
 plausible for the Swiss Mittelland — resident birds, common migrants, and waterbirds. The file
 uses scientific names and can be freely extended. Restart `birdy-detection` after changes.
 
-| Allowlist groups | Examples |
-|---|---|
-| Songbirds | Robin, Blackbird, Tits, Finches, Buntings, Sparrows |
-| Swallows / Swifts | Barn Swallow, House Martin, Common Swift |
-| Woodpeckers | Great Spotted, Green Woodpecker |
-| Pigeons | Wood Pigeon, Collared Dove |
-| Owls | Barn Owl, Little Owl, Long-eared Owl |
-| Raptors | Buzzard, Kestrel, Sparrowhawk, Red Kite |
-| Corvids | Magpie, Jay, Jackdaw, Rook, Raven |
-| Waterbirds | Mallard, Coot, Grey Heron, Cormorant |
-| Swans & Geese | Mute Swan, Greylag Goose, Egyptian Goose |
+| Allowlist groups  | Examples                                            |
+| ----------------- | --------------------------------------------------- |
+| Songbirds         | Robin, Blackbird, Tits, Finches, Buntings, Sparrows |
+| Swallows / Swifts | Barn Swallow, House Martin, Common Swift            |
+| Woodpeckers       | Great Spotted, Green Woodpecker                     |
+| Pigeons           | Wood Pigeon, Collared Dove                          |
+| Owls              | Barn Owl, Little Owl, Long-eared Owl                |
+| Raptors           | Buzzard, Kestrel, Sparrowhawk, Red Kite             |
+| Corvids           | Magpie, Jay, Jackdaw, Rook, Raven                   |
+| Waterbirds        | Mallard, Coot, Grey Heron, Cormorant                |
+| Swans & Geese     | Mute Swan, Greylag Goose, Egyptian Goose            |
 
 ## Mechanical Construction
 
@@ -200,24 +208,24 @@ The birdhouse enclosure is a hybrid construction with 3D-printed and CNC-milled 
 
 ### 3D-Printed Parts (FDM)
 
-| File | Description |
-|---|---|
-| `box_top.stl` / `box_bottom.stl` | Electronics enclosure (Raspberry Pi, camera) |
-| `feeder_plate.stl` | Seed tray |
-| `frame_left.stl` / `frame_right.stl` | Side frames |
-| `bar_left.stl` / `bar_right.stl` | Mounting bars |
-| `pole_mount.stl` / `pole_mount_2.stl` | Pole/post mounting bracket |
-| `weight_main.stl` / `weight_left.stl` / `weight_right.stl` | Weight sensor housing |
-| `konstruktion.skp` | SketchUp source file (full assembly) |
+| File                                                       | Description                                  |
+| ---------------------------------------------------------- | -------------------------------------------- |
+| `box_top.stl` / `box_bottom.stl`                           | Electronics enclosure (Raspberry Pi, camera) |
+| `feeder_plate.stl`                                         | Seed tray                                    |
+| `frame_left.stl` / `frame_right.stl`                       | Side frames                                  |
+| `bar_left.stl` / `bar_right.stl`                           | Mounting bars                                |
+| `pole_mount.stl` / `pole_mount_2.stl`                      | Pole/post mounting bracket                   |
+| `weight_main.stl` / `weight_left.stl` / `weight_right.stl` | Weight sensor housing                        |
+| `konstruktion.skp`                                         | SketchUp source file (full assembly)         |
 
 ### CNC-Milled Parts (Wood) – `mechanic/mill/`
 
-| File | Description |
-|---|---|
-| `back.stl` / `base.stl` / `left.stl` / `right.stl` | Wooden wall panels |
-| `roof.stl` / `window.stl` | Roof and window panel |
-| `*.E12` | Estlcam CNC project files |
-| `m_*.gcode` | G-code toolpaths for CNC mill |
+| File                                               | Description                   |
+| -------------------------------------------------- | ----------------------------- |
+| `back.stl` / `base.stl` / `left.stl` / `right.stl` | Wooden wall panels            |
+| `roof.stl` / `window.stl`                          | Roof and window panel         |
+| `*.E12`                                            | Estlcam CNC project files     |
+| `m_*.gcode`                                        | G-code toolpaths for CNC mill |
 
 ## Project Structure
 

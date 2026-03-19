@@ -189,7 +189,24 @@ BIRDY_SETTINGS = {
     'CAMERA_RESOLUTION': (1280, 720),
     'CAMERA_FRAMERATE': 15,
     'PRE_TRIGGER_SECONDS': 3,
-    'RECORDING_DURATION_SECONDS': 4,  # Gekürzt von 10s auf 4s
+    'RECORDING_DURATION_SECONDS': 4,  # Fallback für statische Aufnahmen
+    'MAX_RECORDING_DURATION_SECONDS': 30,   # Max-Länge dynamische PIR-basierte Aufnahme
+    'MIN_RECORDING_DURATION_SECONDS': 5,    # Mindest-Aufnahmedauer vor PIR-Absence-Check (rpicam-vid braucht Zeit für valide MP4)
+    'PIR_ABSENCE_THRESHOLD_SECONDS': 3,     # PIR LOW für X Sekunden → Vogel weg, Aufnahme stoppen
+    'VISIT_CONTINUATION_WINDOW_SECONDS': 300,  # 5 Min → selber Besuch (Deduplication)
+
+    # Bird Size & Position Detector (SSD MobileNet V2 COCO)
+    'BIRD_DETECTOR_MODEL_PATH': BASE_DIR / 'ml_models' / 'bird_detector.tflite',
+    'BIRD_DETECTOR_ENABLED': True,
+    'BIRD_DETECTOR_MIN_SCORE': 0.3,   # Minimale Detection Confidence
+    'MIN_BIRD_COVERAGE': 0.05,        # Minimale Bbox-Fläche (5% des Frames)
+    # ROI: Bereich des Futterplatzes im Bild (normalisiert 0.0–1.0)
+    # Anpassen sobald bekannt wo der Futterbereich im Bild liegt
+    'BIRD_ROI_X_MIN': 0.05,
+    'BIRD_ROI_X_MAX': 0.95,
+    'BIRD_ROI_Y_MIN': 0.05,
+    'BIRD_ROI_Y_MAX': 0.95,
+
     'MIN_CONFIDENCE_THRESHOLD': 0.7,
     'MIN_CONFIDENCE_SPECIES': 0.5,  # Minimale Confidence für gültigen Besuch (50%)
     # Arten die wie Background behandelt werden (Modell verwechselt sie mit Hintergrund)

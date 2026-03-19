@@ -101,11 +101,26 @@ Frame 3: Kohlmeise         40%  ← Schweizer Kandidat, aber 40% < 50%
 
 ### 1. Detection Workflow (`services/bird_detection.py`)
 
-Statt einem einzelnen Frame werden **8 Frames gleichmässig** aus dem 4s-Video extrahiert
-und jeder klassifiziert. Der Frame mit der höchsten Konfidenz (kein Background) gewinnt:
+**Dynamische Videoaufnahme:** rpicam-vid läuft solange der PIR HIGH ist, maximal 30s.
+Die tatsächliche Aufnahmedauer bestimmt die Anzahl extrahierter Frames.
+
+**Proportionale Frame-Extraktion:** 2 Frames pro Sekunde, mindestens 8:
+- 4s-Video → 8 Frames
+- 15s-Video → 30 Frames
+- 30s-Video → 60 Frames
+
+**BirdSizeDetector-Filter (SSD MobileNet V2 COCO):** Frames ohne erkennbaren Vogel
+oder mit Vogel ausserhalb des ROI werden verworfen. Fail-Open: Falls alle Frames gefiltert
+werden, werden alle Frames als Fallback verwendet.
 
 ```python
-# Alle 8 Frames klassifizieren
+# Bird Size & Position Filter
+if bird_detector and bird_detector.is_initialized:
+    filtered = [f for f in candidate_frames if bird_detector.is_valid_bird_frame(f)]
+    if filtered:
+        candidate_frames = filtered  # Nur Frames mit vollständigem Vogel
+
+# Alle (gefilterten) Frames klassifizieren
 for frame_path in candidate_frames:
     result = classifier.classify(frame_path, top_k=5)
     if not is_background and confidence > best_confidence:
@@ -122,15 +137,25 @@ if best_frame is not None and best_confidence >= min_confidence:
 - Kein gültiger Frame → Video und Temp-Frames werden gelöscht, **kein DB-Eintrag**
 - Gültiger Frame → bestes Frame wird als Photo gespeichert, DB-Einträge werden erstellt
 
-### 2. Statistiken (`species/models.py`)
+### 2. Visit-Deduplication (`is_new_visit`)
+
+Ein langer Vogelbesuch kann mehrere Detection-Zyklen erzeugen (Aufnahme endet, Vogel
+bleibt). Um Statistiken nicht aufzublähen, wird jede Detection als `is_new_visit=True`
+oder `is_new_visit=False` markiert:
+
+- **Neuer Besuch** (`is_new_visit=True`): letzte Detection der Spezies ist entweder
+  unbekannt oder länger als `VISIT_CONTINUATION_WINDOW_SECONDS` (300s) her
+- **Fortsetzung** (`is_new_visit=False`): gleiche Spezies innerhalb von 5 Minuten zuletzt gesehen
+
+### 3. Statistiken (`species/models.py`)
 
 ```python
-# Nur bei gültigen Besuchen (species != None)
-if species:
-    DailyStatistics.update_for_date(timestamp.date(), species)
+# Statistiken zählen nur echte neue Besuche
+DailyStatistics.objects.filter(..., is_new_visit=True)
 ```
 
-**Ergebnis:** Nur Besuche mit gültiger Spezies landen in den Statistiken. Ungültige Detections werden gar nicht erst in die DB geschrieben.
+**Ergebnis:** Nur `is_new_visit=True`-Detections fliessen in Tages-, Monats- und
+Jahresstatistiken ein. Fortsetzungen eines langen Besuchs werden nicht doppelt gezählt.
 
 ### 3. Visit Counts (MQTT, Dashboard)
 
@@ -286,10 +311,14 @@ aufgebaut werden → Filter wird deaktiviert (alle Arten erlaubt, Warning im Log
 
 ## Zusammenfassung
 
-**Gültige Besuche = bestes Frame aus 8 Kandidaten erfüllt alle drei Bedingungen:**
+**Gültiger Besuch = bestes Frame aus proportional vielen Kandidaten (2fps, min. 8) erfüllt alle Bedingungen:**
 1. Confidence >= 50%
 2. Kein "background"
 3. Art ist im Swiss Mittelland Allowlist (`ml_models/swiss_midland_allowlist.txt`)
+
+**Zusätzliche Filter:**
+- BirdSizeDetector (SSD MobileNet V2): Frames mit zu kleinem Vogel oder ausserhalb ROI werden verworfen
+- `is_new_visit`: Statistiken zählen nur echte neue Besuche (Deduplication via 5-Min-Fenster)
 
 Ungültige Detections werden **nicht** in die DB gespeichert:
 - ❌ Kein DB-Eintrag

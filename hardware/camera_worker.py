@@ -66,6 +66,132 @@ class CameraWorkerProcess:
         time.sleep(2)
         return self.start()
 
+    def record_video_dynamic(self, output_path, pir_sensor, max_duration=None, absence_threshold=None):
+        """
+        Nimmt Video auf solange PIR HIGH ist, max max_duration Sekunden.
+        Stoppt den Worker-Prozess für rpicam-vid, startet danach neu.
+
+        Args:
+            output_path: Ziel-Pfad für die MP4-Datei
+            pir_sensor: PIRSensorController-Instanz (für is_motion_detected())
+            max_duration: Maximale Aufnahmedauer in Sekunden (aus Settings wenn None)
+            absence_threshold: Sekunden PIR LOW bis Stopp (aus Settings wenn None)
+
+        Returns:
+            tuple: (mp4_path, actual_duration_seconds) oder (None, 0) bei Fehler
+        """
+        from django.conf import settings as django_settings
+
+        if max_duration is None:
+            max_duration = django_settings.BIRDY_SETTINGS.get('MAX_RECORDING_DURATION_SECONDS', 30)
+        if absence_threshold is None:
+            absence_threshold = django_settings.BIRDY_SETTINGS.get('PIR_ABSENCE_THRESHOLD_SECONDS', 3)
+        min_recording_duration = django_settings.BIRDY_SETTINGS.get('MIN_RECORDING_DURATION_SECONDS', 5)
+
+        try:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            mp4_path = output_path.with_suffix('.mp4')
+
+            logger.info(f"Dynamic recording: max={max_duration}s, min={min_recording_duration}s, absence_threshold={absence_threshold}s")
+
+            # Stoppe Worker-Prozess um Kamera für rpicam-vid freizugeben
+            self.stop()
+            time.sleep(1)
+            logger.debug("Camera worker stopped for dynamic recording")
+
+            # Schreibe rohe H.264-Datei (kein MP4-Container) – kein moov atom nötig
+            # Nach Aufnahme wird per ffmpeg in MP4 umgewandelt
+            h264_path = mp4_path.with_suffix('.h264')
+            duration_ms = int(max_duration * 1000)
+            proc = subprocess.Popen([
+                'rpicam-vid',
+                '--width', str(self.resolution[0]),
+                '--height', str(self.resolution[1]),
+                '--framerate', str(self.framerate),
+                '--timeout', str(duration_ms),
+                '--codec', 'h264',
+                '--output', str(h264_path),
+                '--nopreview'
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+            logger.debug(f"rpicam-vid started (PID={proc.pid})")
+
+            # Überwache PIR und stoppe wenn Vogel weg
+            start_time = time.time()
+            pir_low_since = None
+
+            while proc.poll() is None:
+                elapsed = time.time() - start_time
+
+                if elapsed >= max_duration:
+                    logger.info(f"Dynamic recording: max_duration {max_duration}s reached")
+                    break
+
+                if pir_sensor is not None and elapsed >= min_recording_duration:
+                    pir_active = pir_sensor.is_motion_detected()
+                    if pir_active:
+                        pir_low_since = None
+                    else:
+                        if pir_low_since is None:
+                            pir_low_since = time.time()
+                        elif (time.time() - pir_low_since) >= absence_threshold:
+                            logger.info(
+                                f"Dynamic recording: PIR LOW for {absence_threshold}s "
+                                f"→ bird gone, stopping after {elapsed:.1f}s"
+                            )
+                            break
+
+                time.sleep(0.2)
+
+            actual_duration = time.time() - start_time
+
+            # rpicam-vid stoppen falls noch läuft
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                logger.debug("rpicam-vid terminated")
+
+            # H.264 → MP4 umwandeln
+            # -f h264 + -r: korrekte Timestamps (ohne: Duration N/A, 1200k fps)
+            mux_result = subprocess.run([
+                'ffmpeg', '-y',
+                '-f', 'h264',
+                '-r', str(self.framerate),
+                '-i', str(h264_path),
+                '-c:v', 'copy',
+                str(mp4_path)
+            ], capture_output=True, text=True)
+            h264_path.unlink(missing_ok=True)
+
+            if mux_result.returncode != 0:
+                logger.error(f"ffmpeg mux failed: {mux_result.stderr[-300:]}")
+
+            # Worker neu starten (Kamera reinitialisieren)
+            self.start()
+            logger.debug("Camera worker restarted after dynamic recording")
+
+            if mp4_path.exists() and mp4_path.stat().st_size > 0:
+                logger.info(f"Dynamic video recorded: {mp4_path} ({actual_duration:.1f}s)")
+                return mp4_path, actual_duration
+            else:
+                logger.error(f"Dynamic recording: output file missing or empty ({mp4_path})")
+                return None, 0
+
+        except Exception as e:
+            logger.error(f"Failed to record dynamic video: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                self.start()
+            except Exception as reinit_error:
+                logger.error(f"Failed to restart camera worker: {reinit_error}")
+            return None, 0
+
     def record_video_with_pretrigger(self, output_path):
         """
         Nimmt Video auf - Blockierend, wartet auf Ergebnis
@@ -306,14 +432,16 @@ class CameraWorkerProcess:
             logger.error(f"Extract frame failed: {e}")
             return None
 
-    def extract_candidate_frames(self, video_path, n_frames=8):
+    def extract_candidate_frames(self, video_path, n_frames=None, actual_duration=None):
         """
-        Extrahiere N gleichmässig verteilte Frames für Best-Frame-Selektion.
+        Extrahiere proportional viele Frames für Best-Frame-Selektion.
+        Bei dynamischen Aufnahmen proportional mehr Frames (2fps), mindestens 8.
         ffmpeg läuft als Subprocess im Hauptprozess – kein Worker-Queue nötig.
 
         Args:
             video_path: Pfad zum MP4-Video
-            n_frames: Anzahl Frames (default: 8 → alle 0.5s bei 4s-Video)
+            n_frames: Anzahl Frames (None → automatisch aus actual_duration berechnen)
+            actual_duration: Tatsächliche Videodauer in Sekunden (None → aus Settings)
 
         Returns:
             list[Path]: Temp-Frame-Pfade (müssen vom Aufrufer gelöscht werden),
@@ -324,19 +452,31 @@ class CameraWorkerProcess:
             video_path = Path(video_path)
             temp_dir = Path(tempfile.mkdtemp(prefix='birdy_frames_'))
 
-            fps = n_frames / self.recording_duration  # z.B. 8/4 = 2.0 fps
+            if actual_duration is None:
+                actual_duration = self.recording_duration
+            actual_duration = max(actual_duration, 1.0)  # Mindestens 1s
+
+            if n_frames is None:
+                # 2 Frames pro Sekunde, mindestens 8
+                n_frames = max(8, int(actual_duration * 2.0))
+
+            fps = n_frames / actual_duration
 
             result = subprocess.run([
                 'ffmpeg', '-y',
                 '-i', str(video_path),
-                '-vf', f'fps={fps}',
+                '-vf', f'fps={fps:.4f}',
+                '-pix_fmt', 'yuvj420p',
                 '-q:v', '2',
-                str(temp_dir / 'frame_%02d.jpg')
+                str(temp_dir / 'frame_%03d.jpg')
             ], capture_output=True, text=True)
 
             if result.returncode == 0:
                 frames = sorted(temp_dir.glob('frame_*.jpg'))
-                logger.info(f"[Worker] Extracted {len(frames)} candidate frames from {video_path.name}")
+                logger.info(
+                    f"[Worker] Extracted {len(frames)} candidate frames from {video_path.name} "
+                    f"({actual_duration:.1f}s, {fps:.1f}fps)"
+                )
                 return frames
             else:
                 logger.error(f"[Worker] ffmpeg multi-frame extraction failed: {result.stderr}")

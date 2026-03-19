@@ -86,10 +86,6 @@ Riparia riparia
 # Mauersegler / Swift
 Apus apus
 
-# Spechte / Woodpeckers
-Dendrocopos major
-Picus viridis
-
 # Eisvogel / Kingfisher
 Alcedo atthis
 
@@ -117,22 +113,6 @@ Asio flammeus
 # Wasseramsel / Dipper
 Cinclus cinclus
 
-# Greifvögel / Raptors
-Buteo buteo
-Buteo lagopus
-Falco tinnunculus
-Falco subbuteo
-Falco peregrinus
-Accipiter nisus
-Accipiter gentilis
-Milvus milvus
-Milvus migrans
-Circus aeruginosus
-Circus cyaneus
-Pandion haliaetus
-Aquila chrysaetos
-Gyps fulvus
-
 # Rabenvögel / Corvids
 Corvus corax
 Corvus corone
@@ -142,9 +122,6 @@ Corvus frugilegus
 Garrulus glandarius
 Pica pica
 Pyrrhocorax graculus
-
-# Kranich / Crane
-Grus grus
 
 # Limikolen / Waders
 Vanellus vanellus
@@ -160,65 +137,3 @@ Numenius phaeopus
 Limosa limosa
 Platalea leucorodia
 Plegadis falcinellus
-
-# Möwen / Gulls
-Chroicocephalus ridibundus
-Larus canus
-Larus michahellis
-Larus argentatus
-Larus fuscus
-
-# Taucher / Grebes
-Podiceps cristatus
-Podiceps nigricollis
-Podiceps grisegena
-Podiceps auritus
-Tachybaptus ruficollis
-
-# Reiher & Störche / Herons & Storks
-Ardea cinerea
-Ardea purpurea
-Ardea alba
-Egretta garzetta
-Nycticorax nycticorax
-Ardeola ralloides
-Bubulcus ibis
-Ciconia ciconia
-
-# Kormoran / Cormorant
-Phalacrocorax carbo
-
-# Rallen / Rails & Coots
-Gallinula chloropus
-Fulica atra
-
-# Enten / Ducks
-Anas platyrhynchos
-Anas crecca
-Anas acuta
-Anas strepera
-Anas clypeata
-Anas penelope
-Anas querquedula
-Aythya ferina
-Aythya fuligula
-Aythya marila
-Netta rufina
-Bucephala clangula
-Mergus merganser
-Mergus serrator
-
-# Schwäne & Gänse / Swans & Geese
-Cygnus olor
-Cygnus cygnus
-Anser anser
-Anser albifrons
-Branta canadensis
-Branta leucopsis
-Alopochen aegyptiaca
-Tadorna tadorna
-Tadorna ferruginea
-
-# Hühnervögel / Gallinaceous Birds
-Phasianus colchicus
-Alectoris rufa

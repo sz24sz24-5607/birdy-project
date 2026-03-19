@@ -116,7 +116,9 @@ rm -rf birdy_archive/venv_old
 ### Detection Workflow
 - `sensors/management/commands/start_birdy.py` - Main detection loop
 - `services/bird_detection.py` - Detection workflow orchestration
-- `species/classifier.py` - TensorFlow Lite classification
+- `ml_models/bird_classifier.py` - TensorFlow Lite classification (iNaturalist)
+- `ml_models/bird_detector.py` - Bird size/position filter (SSD MobileNet V2 COCO)
+- `ml_models/bird_detector.tflite` - SSD MobileNet V2 COCO model (6 MB)
 
 ## Git Ignore
 

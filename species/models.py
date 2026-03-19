@@ -48,12 +48,16 @@ class BirdDetection(models.Model):
     processed = models.BooleanField(default=False)
     processing_time_ms = models.IntegerField(null=True, blank=True)
 
+    # Visit-Deduplication: True = neuer Besuch, False = Fortsetzung eines laufenden Besuchs
+    is_new_visit = models.BooleanField(default=True)
+
     class Meta:
         ordering = ['-timestamp']
         indexes = [
             models.Index(fields=['-timestamp']),
             models.Index(fields=['species', '-timestamp']),
             models.Index(fields=['confidence']),
+            models.Index(fields=['is_new_visit', '-timestamp']),
         ]
 
     def __str__(self):
@@ -85,7 +89,8 @@ class DailyStatistics(models.Model):
         stats = BirdDetection.objects.filter(
             timestamp__date=date,
             species=species,
-            processed=True
+            processed=True,
+            is_new_visit=True,
         ).aggregate(
             count=Count('id'),
             avg_conf=models.Avg('confidence')
@@ -123,22 +128,24 @@ class MonthlyStatistics(models.Model):
     @classmethod
     def update_for_month(cls, year, month, species):
         """Aktualisiere Statistik für Monat und Spezies"""
-        # Zähle alle Detections im Monat
+        # Zähle nur echte neue Besuche im Monat
         stats = BirdDetection.objects.filter(
             timestamp__year=year,
             timestamp__month=month,
             species=species,
-            processed=True
+            processed=True,
+            is_new_visit=True,
         ).aggregate(
             count=Count('id')
         )
 
-        # Zähle unique Tage mit Detections
+        # Zähle unique Tage mit echten Besuchen
         unique_days = BirdDetection.objects.filter(
             timestamp__year=year,
             timestamp__month=month,
             species=species,
-            processed=True
+            processed=True,
+            is_new_visit=True,
         ).dates('timestamp', 'day').count()
 
         obj, created = cls.objects.update_or_create(
@@ -173,20 +180,22 @@ class YearlyStatistics(models.Model):
     @classmethod
     def update_for_year(cls, year, species):
         """Aktualisiere Statistik für Jahr und Spezies"""
-        # Zähle alle Detections im Jahr
+        # Zähle nur echte neue Besuche im Jahr
         stats = BirdDetection.objects.filter(
             timestamp__year=year,
             species=species,
-            processed=True
+            processed=True,
+            is_new_visit=True,
         ).aggregate(
             count=Count('id')
         )
 
-        # Zähle unique Monate mit Detections
+        # Zähle unique Monate mit echten Besuchen
         unique_months = BirdDetection.objects.filter(
             timestamp__year=year,
             species=species,
-            processed=True
+            processed=True,
+            is_new_visit=True,
         ).dates('timestamp', 'month').count()
 
         obj, created = cls.objects.update_or_create(

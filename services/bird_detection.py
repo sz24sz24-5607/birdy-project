@@ -16,10 +16,19 @@ logger = logging.getLogger('birdy')
 class BirdDetectionService:
     """Service für kompletten Vogel-Detektion Workflow"""
 
-    def __init__(self, camera=None, classifier=None):
+    def __init__(self, camera=None, classifier=None, pir_sensor=None, bird_detector=None):
         self.storage_path = settings.USB_STORAGE_PATH
         self.camera = camera
         self.classifier = classifier
+        self.pir_sensor = pir_sensor
+        self.bird_detector = bird_detector
+
+        # Verhindert parallele Aufnahmen während ein Besuch aufgezeichnet wird
+        self._recording_lock = threading.Lock()
+
+        # Visit-Deduplication: letzte Detection-Zeit pro Spezies (in-memory)
+        # {species_label: datetime}
+        self._last_visit_times = {}
 
     def handle_motion_detected(self, pir_event):
         """
@@ -28,12 +37,16 @@ class BirdDetectionService:
         Args:
             pir_event: PIREvent Model Instance
         """
+        # Wenn gerade eine Aufnahme läuft: PIR-Trigger ignorieren
+        # (Die laufende Aufnahme überwacht den PIR selbst und läuft weiter)
+        if self._recording_lock.locked():
+            logger.debug("Recording already in progress – PIR trigger ignored")
+            return
+
         logger.info("Motion detected - starting bird detection workflow...")
 
         # WICHTIG: Starte Detection in separatem Thread um PIR Monitoring nicht zu blockieren!
-        # Grund: Video-Aufzeichnung dauert ~8 Sekunden und würde PIR "No Motion" Events verzögern
         # Kamera läuft nur in diesem Prozess, Celery Worker hat keinen Zugriff
-        # Da nur 1 Kamera existiert, können sowieso keine parallelen Detections laufen
         detection_thread = threading.Thread(
             target=self.process_detection,
             args=(pir_event.id,),
@@ -45,10 +58,10 @@ class BirdDetectionService:
 
     def process_detection(self, pir_event_id):
         """
-        Vollständiger Detection-Workflow
+        Vollständiger Detection-Workflow mit PIR-basierter dynamischer Aufnahmedauer.
 
-        1. Nehme Video auf (mit Pre-Trigger)
-        2. Extrahiere Best Frame
+        1. Nehme Video auf (dynamisch: stoppt wenn PIR LOW oder max_duration)
+        2. Extrahiere Kandidaten-Frames (proportional zur Aufnahmedauer)
         3. Klassifiziere Vogel
         4. Speichere Ergebnisse
         5. Update Statistiken
@@ -58,217 +71,274 @@ class BirdDetectionService:
         from sensors.models import PIREvent
         from species.models import BirdDetection, BirdSpecies, DailyStatistics
 
-        try:
-            pir_event = PIREvent.objects.get(id=pir_event_id)
+        with self._recording_lock:
+            try:
+                pir_event = PIREvent.objects.get(id=pir_event_id)
 
-            # Hardware Instanzen nutzen (wurden an __init__ übergeben)
-            camera = self.camera
-            classifier = self.classifier
+                camera = self.camera
+                classifier = self.classifier
+                pir_sensor = self.pir_sensor
 
-            if not camera:
-                logger.error("Camera instance not set - must be passed to BirdDetectionService()")
-                return
+                if not camera:
+                    logger.error("Camera instance not set - must be passed to BirdDetectionService()")
+                    return
 
-            logger.debug(f"Camera initialized: {camera.is_initialized}")
-            logger.debug(f"Classifier initialized: {classifier.is_initialized if classifier else 'None'}")
+                logger.debug(f"Camera initialized: {camera.is_initialized}")
+                logger.debug(f"Classifier initialized: {classifier.is_initialized if classifier else 'None'}")
 
-            if not camera.is_initialized:
-                logger.error("Camera not initialized (should be initialized by start_birdy)")
-                return
+                if not camera.is_initialized:
+                    logger.error("Camera not initialized (should be initialized by start_birdy)")
+                    return
 
-            logger.info("Starting video recording workflow...")
+                logger.info("Starting dynamic video recording workflow...")
 
-            timestamp = timezone.now()
-            date_path = timestamp.strftime('%Y/%m/%d')
-            filename_base = timestamp.strftime('%Y%m%d_%H%M%S')
+                timestamp = timezone.now()
+                date_path = timestamp.strftime('%Y/%m/%d')
+                filename_base = timestamp.strftime('%Y%m%d_%H%M%S')
 
-            # Video aufnehmen
-            video_filename = f"{filename_base}.mp4"
-            video_path = self.storage_path / 'videos' / date_path / video_filename
+                # Video aufnehmen – dynamische Dauer basierend auf PIR
+                video_filename = f"{filename_base}.mp4"
+                video_path = self.storage_path / 'videos' / date_path / video_filename
 
-            logger.info(f"Recording video: {video_path}")
-            recorded_video = camera.record_video_with_pretrigger(video_path)
+                logger.info(f"Recording video: {video_path}")
+                recorded_video, actual_duration = camera.record_video_dynamic(
+                    video_path,
+                    pir_sensor=pir_sensor,
+                )
 
-            if not recorded_video:
-                logger.error("Video recording failed")
-                return
+                if not recorded_video:
+                    logger.error("Video recording failed")
+                    return
 
-            # Extrahiere Kandidaten-Frames für Best-Frame-Selektion
-            logger.info("Extracting candidate frames...")
-            candidate_frames = camera.extract_candidate_frames(recorded_video, n_frames=8)
+                # Extrahiere Kandidaten-Frames proportional zur tatsächlichen Aufnahmedauer
+                logger.info(f"Extracting candidate frames (video duration: {actual_duration:.1f}s)...")
+                candidate_frames = camera.extract_candidate_frames(
+                    recorded_video,
+                    actual_duration=actual_duration,
+                )
 
-            if not candidate_frames:
-                logger.error("Candidate frame extraction failed")
-                recorded_video.unlink(missing_ok=True)
-                return
+                if not candidate_frames:
+                    logger.error("Candidate frame extraction failed")
+                    recorded_video.unlink(missing_ok=True)
+                    return
 
-            temp_dir = candidate_frames[0].parent
+                temp_dir = candidate_frames[0].parent
 
-            # Klassifiziere alle Frames, wähle den mit höchster Konfidenz
-            logger.info(f"Classifying {len(candidate_frames)} candidate frames...")
-            classification = None
-            species = None
-            is_valid_visit = False
-            best_frame = None
-            best_confidence = -1.0
-            total_processing_ms = 0
-            min_confidence = settings.BIRDY_SETTINGS['MIN_CONFIDENCE_SPECIES']
-            ignored_species = settings.BIRDY_SETTINGS.get('IGNORED_SPECIES', set())
+                # Bird Size & Position Filter: Frames ohne vollständigen Vogel im ROI verwerfen
+                bird_detector = self.bird_detector
+                if bird_detector and bird_detector.is_initialized and settings.BIRDY_SETTINGS.get('BIRD_DETECTOR_ENABLED', True):
+                    filtered = [f for f in candidate_frames if bird_detector.is_valid_bird_frame(f)]
+                    if filtered:
+                        logger.info(
+                            f"Bird detector: {len(filtered)}/{len(candidate_frames)} frames passed "
+                            f"(coverage + ROI filter)"
+                        )
+                        candidate_frames = filtered
+                    else:
+                        logger.info(
+                            f"Bird detector: 0/{len(candidate_frames)} frames passed – "
+                            f"using all frames as fallback (species classifier decides)"
+                        )
 
-            if classifier.is_initialized:
-                for i, frame_path in enumerate(candidate_frames):
-                    result = classifier.classify(frame_path, top_k=5)
-                    if not result:
-                        continue
+                # Klassifiziere alle Frames, wähle den mit höchster Konfidenz
+                logger.info(f"Classifying {len(candidate_frames)} candidate frames...")
+                classification = None
+                species = None
+                is_valid_visit = False
+                best_frame = None
+                best_confidence = -1.0
+                total_processing_ms = 0
+                min_confidence = settings.BIRDY_SETTINGS['MIN_CONFIDENCE_SPECIES']
+                ignored_species = settings.BIRDY_SETTINGS.get('IGNORED_SPECIES', set())
 
-                    total_processing_ms += result['processing_time_ms']
-                    top_pred = result['top_prediction']
-                    confidence = top_pred['confidence']
-                    is_background = (
-                        top_pred['label'].lower() == 'background'
-                        or top_pred['label'] in ignored_species
-                    )
+                if classifier.is_initialized:
+                    for i, frame_path in enumerate(candidate_frames):
+                        result = classifier.classify(frame_path, top_k=5)
+                        if not result:
+                            continue
 
-                    logger.debug(
-                        f"Frame {i+1}/{len(candidate_frames)}: "
-                        f"{top_pred['label']} ({confidence:.1%})"
-                        + (" [ignored]" if top_pred['label'] in ignored_species else "")
-                        + (" [background]" if top_pred['label'].lower() == 'background' else "")
-                    )
+                        total_processing_ms += result['processing_time_ms']
+                        top_pred = result['top_prediction']
+                        confidence = top_pred['confidence']
+                        is_background = (
+                            top_pred['label'].lower() == 'background'
+                            or top_pred['label'] in ignored_species
+                        )
 
-                    if not is_background and confidence > best_confidence:
-                        best_confidence = confidence
-                        best_frame = frame_path
-                        classification = result
+                        logger.debug(
+                            f"Frame {i+1}/{len(candidate_frames)}: "
+                            f"{top_pred['label']} ({confidence:.1%})"
+                            + (" [ignored]" if top_pred['label'] in ignored_species else "")
+                            + (" [background]" if top_pred['label'].lower() == 'background' else "")
+                        )
 
-                if best_frame is not None and best_confidence >= min_confidence:
-                    is_valid_visit = True
-                    classification['processing_time_ms'] = total_processing_ms
-                    species_label = classification['top_prediction']['label']
+                        if not is_background and confidence > best_confidence:
+                            best_confidence = confidence
+                            best_frame = frame_path
+                            classification = result
 
-                    species, created = BirdSpecies.objects.get_or_create(
-                        scientific_name=species_label,
-                        defaults={
-                            'common_name_de': species_label,
-                            'inat_taxon_id': classification['top_prediction']['class_id']
-                        }
-                    )
-                    if created:
-                        logger.info(f"New species discovered: {species_label}")
+                    if best_frame is not None and best_confidence >= min_confidence:
+                        is_valid_visit = True
+                        classification['processing_time_ms'] = total_processing_ms
+                        species_label = classification['top_prediction']['label']
 
-                    logger.info(
-                        f"Best frame: {best_frame.name} → "
-                        f"{species_label} ({best_confidence:.1%}) "
-                        f"[{total_processing_ms}ms total]"
-                    )
-                else:
-                    reason = (
-                        f"best confidence too low ({best_confidence:.1%} < {min_confidence:.1%})"
-                        if best_frame else "no valid (non-background) frame found"
-                    )
-                    logger.info(f"Not a valid visit: {reason}")
+                        species, created = BirdSpecies.objects.get_or_create(
+                            scientific_name=species_label,
+                            defaults={
+                                'common_name_de': species_label,
+                                'inat_taxon_id': classification['top_prediction']['class_id']
+                            }
+                        )
+                        if created:
+                            logger.info(f"New species discovered: {species_label}")
 
-            # Kein gültiger Besuch → Temp-Frames + Video löschen, kein DB-Eintrag
-            if not is_valid_visit:
+                        logger.info(
+                            f"Best frame: {best_frame.name} → "
+                            f"{species_label} ({best_confidence:.1%}) "
+                            f"[{total_processing_ms}ms total]"
+                        )
+                    else:
+                        reason = (
+                            f"best confidence too low ({best_confidence:.1%} < {min_confidence:.1%})"
+                            if best_frame else "no valid (non-background) frame found"
+                        )
+                        logger.info(f"Not a valid visit: {reason}")
+
+                # Kein gültiger Besuch → Temp-Frames + Video löschen, kein DB-Eintrag
+                if not is_valid_visit:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    recorded_video.unlink(missing_ok=True)
+                    logger.info("No valid detection – files deleted, no DB entries created")
+                    return
+
+                # Bestes Frame an finalen Pfad kopieren
+                photo_filename = f"{filename_base}.jpg"
+                photo_path = self.storage_path / 'photos' / date_path / photo_filename
+                photo_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(best_frame, photo_path)
+
+                # Temp-Frames aufräumen
                 shutil.rmtree(temp_dir, ignore_errors=True)
-                recorded_video.unlink(missing_ok=True)
-                logger.info("No valid detection – files deleted, no DB entries created")
-                return
 
-            # Bestes Frame an finalen Pfad kopieren
-            photo_filename = f"{filename_base}.jpg"
-            photo_path = self.storage_path / 'photos' / date_path / photo_filename
-            photo_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(best_frame, photo_path)
+                # Ab hier: gültiger Besuch → DB-Einträge erstellen
 
-            # Temp-Frames aufräumen
-            shutil.rmtree(temp_dir, ignore_errors=True)
+                # latest.mp4 aktualisieren (für HA Media Browser via NFS)
+                latest_path = self.storage_path / 'videos' / 'latest.mp4'
+                try:
+                    shutil.copy2(recorded_video, latest_path)
+                    logger.debug(f"Updated latest.mp4 → {recorded_video.name}")
+                except Exception as e:
+                    logger.warning(f"Could not update latest.mp4: {e}")
 
-            # Ab hier: gültiger Besuch → DB-Einträge erstellen
+                # Video DB Entry
+                actual_filename = recorded_video.name
+                relative_video_path = str(Path('videos') / date_path / actual_filename)
 
-            # latest.mp4 aktualisieren (für HA Media Browser via NFS)
-            # Kopie statt Symlink, da vfat keine Symlinks unterstützt
-            latest_path = self.storage_path / 'videos' / 'latest.mp4'
-            try:
-                shutil.copy2(recorded_video, latest_path)
-                logger.debug(f"Updated latest.mp4 → {recorded_video.name}")
+                video_obj = Video.objects.create(
+                    timestamp=timestamp,
+                    file=relative_video_path,
+                    filename=actual_filename,
+                    filesize_bytes=recorded_video.stat().st_size if recorded_video.exists() else 0,
+                    duration_seconds=actual_duration,
+                    width=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][0],
+                    height=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][1],
+                    framerate=settings.BIRDY_SETTINGS['CAMERA_FRAMERATE'],
+                    codec='h264'
+                )
+
+                # Photo DB Entry
+                from PIL import Image
+                try:
+                    with Image.open(photo_path) as img:
+                        width, height = img.size
+                except Exception:
+                    width, height = 0, 0
+
+                relative_photo_path = str(Path('photos') / date_path / photo_filename)
+
+                photo_obj = Photo.objects.create(
+                    timestamp=timestamp,
+                    file=relative_photo_path,
+                    filename=photo_filename,
+                    filesize_bytes=photo_path.stat().st_size if photo_path.exists() else 0,
+                    width=width,
+                    height=height
+                )
+
+                # Video-Thumbnail setzen
+                video_obj.thumbnail_frame = relative_photo_path
+                video_obj.save()
+
+                # Visit-Deduplication: Ist das eine Fortsetzung eines laufenden Besuchs?
+                species_label = classification['top_prediction']['label']
+                is_new_visit = self._determine_is_new_visit(species_label, timestamp)
+
+                # BirdDetection Entry
+                detection = BirdDetection.objects.create(
+                    timestamp=timestamp,
+                    species=species,
+                    confidence=classification['top_prediction']['confidence'],
+                    top_predictions=classification['top_k_predictions'],
+                    photo=photo_obj,
+                    video=video_obj,
+                    pir_event=pir_event,
+                    processed=True,
+                    processing_time_ms=classification['processing_time_ms'],
+                    is_new_visit=is_new_visit,
+                )
+
+                visit_label = "neuer Besuch" if is_new_visit else "Fortsetzung Besuch"
+                logger.info(f"Detection saved: {species.common_name_de} [{visit_label}]")
+
+                # Statistiken aktualisieren (zählt nur is_new_visit=True)
+                DailyStatistics.update_for_date(timestamp.date(), species)
+                logger.info("Statistics updated")
+
+                # Home Assistant benachrichtigen
+                try:
+                    from homeassistant.mqtt_client import get_mqtt_client
+                    mqtt = get_mqtt_client()
+
+                    if mqtt.is_connected:
+                        mqtt.publish_bird_detected(detection)
+                        logger.info("Home Assistant notified")
+                except Exception as e:
+                    logger.error(f"Failed to notify Home Assistant: {e}")
+
+                logger.info("Bird detection workflow completed successfully")
+
             except Exception as e:
-                logger.warning(f"Could not update latest.mp4: {e}")
+                logger.error(f"Error in detection workflow: {e}", exc_info=True)
 
-            # Video DB Entry
-            # Nutze tatsächlichen Dateinamen (könnte .mp4 oder .h264 sein, falls ffmpeg fehlschlägt)
-            actual_filename = recorded_video.name
-            relative_video_path = str(Path('videos') / date_path / actual_filename)
+    def _determine_is_new_visit(self, species_label, timestamp):
+        """
+        Bestimmt ob diese Detection ein neuer Besuch oder eine Fortsetzung ist.
 
-            video_obj = Video.objects.create(
-                timestamp=timestamp,
-                file=relative_video_path,
-                filename=actual_filename,
-                filesize_bytes=recorded_video.stat().st_size if recorded_video.exists() else 0,
-                duration_seconds=settings.BIRDY_SETTINGS['RECORDING_DURATION_SECONDS'],
-                width=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][0],
-                height=settings.BIRDY_SETTINGS['CAMERA_RESOLUTION'][1],
-                framerate=settings.BIRDY_SETTINGS['CAMERA_FRAMERATE'],
-                codec='h264'
-            )
+        Ein Besuch gilt als Fortsetzung wenn die gleiche Spezies innerhalb von
+        VISIT_CONTINUATION_WINDOW_SECONDS zuletzt gesehen wurde.
 
-            # Photo DB Entry
-            from PIL import Image
-            try:
-                with Image.open(photo_path) as img:
-                    width, height = img.size
-            except Exception:
-                width, height = 0, 0
+        Args:
+            species_label: Spezies-Label (scientific name)
+            timestamp: Zeitstempel der aktuellen Detection
 
-            relative_photo_path = str(Path('photos') / date_path / photo_filename)
+        Returns:
+            bool: True wenn neuer Besuch, False wenn Fortsetzung
+        """
+        continuation_window = settings.BIRDY_SETTINGS.get('VISIT_CONTINUATION_WINDOW_SECONDS', 300)
 
-            photo_obj = Photo.objects.create(
-                timestamp=timestamp,
-                file=relative_photo_path,
-                filename=photo_filename,
-                filesize_bytes=photo_path.stat().st_size if photo_path.exists() else 0,
-                width=width,
-                height=height
-            )
+        last_time = self._last_visit_times.get(species_label)
+        if last_time is not None:
+            elapsed = (timestamp - last_time).total_seconds()
+            if elapsed < continuation_window:
+                self._last_visit_times[species_label] = timestamp
+                logger.debug(
+                    f"Visit continuation: {species_label} seen {elapsed:.0f}s ago "
+                    f"(window={continuation_window}s)"
+                )
+                return False
 
-            # Video-Thumbnail setzen
-            video_obj.thumbnail_frame = relative_photo_path
-            video_obj.save()
-
-            # BirdDetection Entry
-            detection = BirdDetection.objects.create(
-                timestamp=timestamp,
-                species=species,
-                confidence=classification['top_prediction']['confidence'],
-                top_predictions=classification['top_k_predictions'],
-                photo=photo_obj,
-                video=video_obj,
-                pir_event=pir_event,
-                processed=True,
-                processing_time_ms=classification['processing_time_ms']
-            )
-
-            logger.info(f"Detection saved: {species.common_name_de}")
-
-            # Statistiken aktualisieren
-            DailyStatistics.update_for_date(timestamp.date(), species)
-            logger.info("Statistics updated")
-
-            # Home Assistant benachrichtigen
-            try:
-                from homeassistant.mqtt_client import get_mqtt_client
-                mqtt = get_mqtt_client()
-
-                if mqtt.is_connected:
-                    mqtt.publish_bird_detected(detection)
-                    logger.info("Home Assistant notified")
-            except Exception as e:
-                logger.error(f"Failed to notify Home Assistant: {e}")
-
-            logger.info("Bird detection workflow completed successfully")
-
-        except Exception as e:
-            logger.error(f"Error in detection workflow: {e}", exc_info=True)
+        self._last_visit_times[species_label] = timestamp
+        return True
 
 
 @shared_task
@@ -291,15 +361,22 @@ def process_bird_detection(pir_event_id):
 
 
 # Service Instance
-def get_detection_service(camera=None, classifier=None):
+def get_detection_service(camera=None, classifier=None, pir_sensor=None, bird_detector=None):
     """
     Hole Detection Service Instance
 
     Args:
         camera: Camera-Instanz (von start_birdy übergeben)
         classifier: Classifier-Instanz (von start_birdy übergeben)
+        pir_sensor: PIRSensorController-Instanz (für PIR-basierte Aufnahmedauer)
+        bird_detector: BirdSizeDetector-Instanz (für Coverage + ROI Filter)
 
     Returns:
         BirdDetectionService mit Hardware-Referenzen
     """
-    return BirdDetectionService(camera=camera, classifier=classifier)
+    return BirdDetectionService(
+        camera=camera,
+        classifier=classifier,
+        pir_sensor=pir_sensor,
+        bird_detector=bird_detector,
+    )

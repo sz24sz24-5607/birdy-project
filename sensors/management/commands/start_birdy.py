@@ -46,6 +46,15 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.WARNING('⚠ Classifier not initialized'))
 
+        # 2b. Bird Size Detector laden
+        self.stdout.write('Loading bird detector...')
+        from ml_models.bird_detector import get_bird_detector
+        bird_detector = get_bird_detector()
+        if bird_detector.is_initialized:
+            self.stdout.write(self.style.SUCCESS('✓ Bird detector initialized'))
+        else:
+            self.stdout.write(self.style.WARNING('⚠ Bird detector not initialized (frames not filtered by size/position)'))
+
         # 3. MQTT Client
         self.stdout.write('Connecting to MQTT...')
         mqtt = get_mqtt_client()
@@ -60,7 +69,12 @@ class Command(BaseCommand):
 
         # WICHTIG: Übergebe Hardware-Instanzen an Detection Service
         # Damit nutzt der Service die gleichen Instanzen wie start_birdy (gleicher Prozess)
-        detection_service = get_detection_service(camera=camera, classifier=classifier)
+        detection_service = get_detection_service(
+            camera=camera,
+            classifier=classifier,
+            pir_sensor=pir_sensor,
+            bird_detector=bird_detector,
+        )
         pir_sensor.register_motion_callback(detection_service.handle_motion_detected)
 
         self.stdout.write(self.style.SUCCESS('✓ Detection service registered'))
